@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div><h1>대시보드</h1><p>전체 재고 현황 및 마진 요약</p></div>
+  <div style="display:flex;gap:8px">
+    <a href="/download/stock" class="btn btn-secondary">📥 재고현황 엑셀</a>
+    <a href="/products/new" class="btn btn-primary">+ 상품 등록</a>
+  </div>
+</div>
+
+{% if grouped %}
+<div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead>
+      <tr>
+        <th>상품명</th>
+        <th>옵션별 재고</th>
+        <th class="tr">총재고</th>
+        <th class="tr">판매가</th>
+        <th class="tr">간이 마진</th>
+        <th class="tr">간이 마진율</th>
+        <th class="tr">일반 마진</th>
+        <th class="tr">일반 마진율</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for name, items in grouped %}
+    {% set ns = namespace(total=0) %}
+    {% for item in items %}{% set ns.total = ns.total + item.s %}{% endfor %}
+    {# 마진은 가장 최근 배치(첫번째) 기준 #}
+    {% set latest = items[0] %}
+    <tr>
+      <td class="bold" style="font-size:14px">{{ name }}</td>
+
+      {# 옵션별 재고 뱃지 #}
+      <td>
+        <div style="display:flex;flex-wrap:wrap;gap:5px">
+        {% for item in items %}
+          <div style="display:flex;align-items:center;gap:4px">
+            {% if item.p.option_name %}
+            <span style="font-size:11px;color:#6b7280">{{ item.p.option_name }}</span>
+            {% endif %}
+            <span class="badge {{ 'bg-green' if item.s > 10 else ('bg-yellow' if item.s > 0 else 'bg-red') }}"
+                  style="font-size:11px;padding:2px 8px">{{ item.s }}개</span>
+          </div>
+        {% endfor %}
+        </div>
+      </td>
+
+      <td class="tr">
+        <span class="badge {{ 'bg-green' if ns.total > 10 else ('bg-yellow' if ns.total > 0 else 'bg-red') }}"
+              style="font-size:13px;padding:4px 12px;font-weight:700">{{ ns.total }}개</span>
+      </td>
+
+      <td class="tr" style="font-weight:600">{{ '{:,}'.format(latest.p.sale_price) }}원</td>
+
+      <td class="tr {{ 'green' if latest.m.simple_margin >= 0 else 'red' }}" style="font-weight:700">
+        {{ '{:,.0f}'.format(latest.m.simple_margin) }}원
+      </td>
+      <td class="tr {{ 'green' if latest.m.simple_margin_rate >= 0 else 'red' }}">
+        {{ '{:.1f}'.format(latest.m.simple_margin_rate) }}%
+      </td>
+      <td class="tr {{ 'green' if latest.m.general_margin >= 0 else 'red' }}" style="font-weight:700;color:#2563eb">
+        {{ '{:,.0f}'.format(latest.m.general_margin) }}원
+      </td>
+      <td class="tr" style="color:#2563eb">
+        {{ '{:.1f}'.format(latest.m.general_margin_rate) }}%
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+<div class="card" style="padding:50px;text-align:center;color:#aaa">
+  등록된 상품이 없습니다. <a href="/products/new" style="color:#4f46e5">상품 등록하기 →</a>
+</div>
+{% endif %}
+{% endblock %}

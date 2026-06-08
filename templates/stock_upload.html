@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div><h1>발송파일 업로드</h1><p>발송대기 엑셀 파일을 올리면 자동으로 출고 처리됩니다</p></div>
+</div>
+
+{% if results is none %}
+<div class="card" style="max-width:500px">
+  <form method="POST" enctype="multipart/form-data">
+    <div class="form-group">
+      <label>발송대기 파일 (.xls)</label>
+      <input type="file" name="file" class="form-control" accept=".xls,.xlsx" required>
+      <p class="hint">롯데택배 발송대기 파일 — G열: 상품명, J열: 배송메세지 (총N개)</p>
+    </div>
+    <button type="submit" class="btn btn-primary">파싱 미리보기</button>
+  </form>
+</div>
+
+{% else %}
+<div class="card">
+  <div class="card-title flex" style="justify-content:space-between">
+    <span>파싱 결과 — {{ filename }}</span>
+    <div class="flex">
+      <span class="badge bg-green">매칭 {{ results|length }}건</span>
+      {% if unmatched %}<span class="badge bg-red">실패 {{ unmatched|length }}건</span>{% endif %}
+    </div>
+  </div>
+
+  {% if results %}
+  <table>
+    <thead>
+      <tr>
+        <th>주문번호</th><th>추출 옵션명</th><th>원본 상품명</th><th>매칭 상품</th><th class="tr">출고 수량</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in results %}
+    <tr>
+      <td class="gray sm">{{ r.order_number }}</td>
+      <td><span class="badge bg-blue">{{ r.option_str or '-' }}</span></td>
+      <td class="sm" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#555"
+          title="{{ r.raw_name }}">{{ r.raw_name }}</td>
+      <td class="bold">{{ r.product_name }}
+        {% if r.option_name %}<span class="gray" style="font-weight:400"> ({{ r.option_name }})</span>{% endif %}
+      </td>
+      <td class="tr bold">{{ r.quantity }}개</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if unmatched %}
+  <div style="margin-top:24px">
+    <div style="font-size:14px;font-weight:700;color:#dc2626;margin-bottom:12px">
+      ⚠️ 매칭 실패 {{ unmatched|length }}건 — 상품 키워드를 확인하세요
+    </div>
+    <table>
+      <thead><tr><th>주문번호</th><th>상품명</th><th>실패 사유</th></tr></thead>
+      <tbody>
+      {% for u in unmatched %}
+      <tr>
+        <td class="gray sm">{{ u.order }}</td>
+        <td class="sm">{{ u.name }}</td>
+        <td><span class="badge bg-red">{{ u.reason }}</span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="flex mt">
+    {% if results %}
+    <form method="POST">
+      <input type="hidden" name="confirm" value="1">
+      <button type="submit" class="btn btn-success"
+              onclick="return confirm('{{ results|length }}건을 출고 처리하시겠습니까?')">
+        ✓ 출고 확정
+      </button>
+    </form>
+    {% endif %}
+    <a href="/stock/upload" class="btn btn-secondary">다시 업로드</a>
+    <a href="/" class="btn btn-secondary">취소</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

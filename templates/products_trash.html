@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div>
+    <h1>삭제된 상품</h1>
+    <p>{{ products|length }}개 — 복구하면 상품 관리로 돌아옵니다</p>
+  </div>
+  <a href="/products" class="btn btn-secondary">← 상품 관리로</a>
+</div>
+
+{% if products %}
+<div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead>
+      <tr>
+        <th>상품명</th><th>옵션</th><th class="tr">판매가</th>
+        <th class="tr">사입가</th><th>키워드</th><th>삭제일</th><th class="tc">복구</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for p in products %}
+    <tr style="opacity:.7">
+      <td class="bold" style="color:#6b7280">{{ p.name }}</td>
+      <td class="gray">{{ p.option_name or '-' }}</td>
+      <td class="tr">{{ '{:,}'.format(p.sale_price) }}원</td>
+      <td class="tr">{{ p.purchase_price_cny }}위안</td>
+      <td class="sm gray">
+        {% if p.kws %}
+          {% for kw in p.kws.split('||') %}
+          <span class="badge bg-gray" style="font-size:11px">{{ kw }}</span>
+          {% endfor %}
+        {% else %}-{% endif %}
+      </td>
+      <td class="sm gray">{{ (p.created_at or '')[:10] }}</td>
+      <td class="tc">
+        <form method="POST" action="/products/{{ p.id }}/restore"
+              onsubmit="return confirm('{{ p.name }}을(를) 복구하시겠습니까?')">
+          <button type="submit" class="btn btn-success btn-sm">복구</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+<div class="card" style="padding:60px;text-align:center;color:#aaa">
+  삭제된 상품이 없습니다.
+</div>
+{% endif %}
+{% endblock %}

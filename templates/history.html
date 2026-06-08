@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div><h1>입출고 이력</h1><p>제품별 재고 현황 및 입출고 기록</p></div>
+  <a href="/download/history" class="btn btn-secondary">📥 엑셀 다운로드</a>
+</div>
+
+{% if grouped %}
+{% for name, items in grouped %}
+{% set ns = namespace(ti=0, to=0) %}
+{% for item in items %}
+  {% set ns.ti = ns.ti + item.total_in %}
+  {% set ns.to = ns.to + item.total_out %}
+{% endfor %}
+{% set gi = loop.index %}
+
+<div style="margin-bottom:12px">
+
+  {# ── 상품명 그룹 헤더 ── #}
+  <div onclick="tog('hg{{gi}}','hga{{gi}}')"
+       style="display:flex;align-items:center;justify-content:space-between;
+              padding:13px 20px;background:#fff;border:1px solid #e5e7eb;
+              border-radius:10px;cursor:pointer;user-select:none"
+       onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='#fff'">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span id="hga{{gi}}" style="font-size:11px;color:#bbb;transition:transform .2s">▶</span>
+      <span style="font-size:16px;font-weight:700">{{ name }}</span>
+      <span class="badge bg-gray" style="font-size:11px">{{ items|length }}배치</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;font-size:13px">
+      <span style="color:#059669;font-weight:600">입고 {{ ns.ti }}개</span>
+      <span style="color:#ef4444;font-weight:600">출고 {{ ns.to }}개</span>
+      <span class="badge {{ 'bg-green' if (ns.ti - ns.to) > 10 else ('bg-yellow' if (ns.ti - ns.to) > 0 else 'bg-red') }}"
+            style="font-size:13px;padding:5px 12px">현재고 {{ ns.ti - ns.to }}개</span>
+    </div>
+  </div>
+
+  {# ── 배치 목록 ── #}
+  <div id="hg{{gi}}" style="display:none;border:1px solid #e5e7eb;border-top:none;
+       border-radius:0 0 10px 10px;overflow:hidden">
+  {% for item in items %}
+  {% set bi = loop.index %}
+
+    {# 배치 헤더 #}
+    <div onclick="tog('hb{{gi}}_{{bi}}','hba{{gi}}_{{bi}}')"
+         style="display:flex;align-items:center;justify-content:space-between;
+                padding:11px 24px;background:#f8f9fa;border-bottom:1px solid #eee;
+                cursor:pointer;user-select:none"
+         onmouseover="this.style.background='#f1f3f5'" onmouseout="this.style.background='#f8f9fa'">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="hba{{gi}}_{{bi}}" style="font-size:11px;color:#bbb;transition:transform .2s">▶</span>
+        {% if item.p.option_name %}
+        <span class="badge bg-blue" style="font-size:12px;padding:4px 12px">{{ item.p.option_name }}</span>
+        {% else %}
+        <span style="font-size:13px;color:#777;font-weight:600">옵션 없음</span>
+        {% endif %}
+        <span style="font-size:12px;color:#9ca3af">등록 {{ (item.p.created_at or '')[:10] }}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:20px;font-size:13px">
+        <div style="text-align:right">
+          <span style="color:#059669;font-weight:700">▲ {{ item.total_in }}개</span>
+          <span style="color:#d1d5db;margin:0 4px">/</span>
+          <span style="color:#ef4444;font-weight:700">▼ {{ item.total_out }}개</span>
+        </div>
+        <span class="badge {{ 'bg-green' if item.current > 10 else ('bg-yellow' if item.current > 0 else 'bg-red') }}"
+              style="font-size:13px;padding:5px 12px;font-weight:700">{{ item.current }}개</span>
+      </div>
+    </div>
+
+    {# 배치 입출고 상세 #}
+    <div id="hb{{gi}}_{{bi}}" style="display:none;background:#fff;border-bottom:1px solid #f0f0f0">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+
+        {# 입고 이력 #}
+        <div style="padding:16px 20px;border-right:1px solid #f0f0f0">
+          <div style="font-size:11px;font-weight:700;color:#059669;letter-spacing:.5px;margin-bottom:10px">
+            입고 이력 (총 {{ item.total_in }}개)
+          </div>
+          {% if item.ins %}
+          <table style="width:100%;font-size:12px">
+            <thead>
+              <tr>
+                <th style="background:none;color:#9ca3af;font-weight:600;padding:4px 6px;border-bottom:1px solid #f0f0f0">날짜</th>
+                <th style="background:none;color:#9ca3af;font-weight:600;padding:4px 6px;border-bottom:1px solid #f0f0f0;text-align:right">수량</th>
+                <th style="background:none;color:#9ca3af;font-weight:600;padding:4px 6px;border-bottom:1px solid #f0f0f0">메모</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for s in item.ins %}
+            <tr>
+              <td style="padding:5px 6px;color:#6b7280">{{ s.date }}</td>
+              <td style="padding:5px 6px;text-align:right;font-weight:700;color:#059669">+{{ s.quantity }}개</td>
+              <td style="padding:5px 6px;color:#9ca3af">{{ s.memo or '-' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div style="color:#d1d5db;font-size:12px;padding:8px 0">입고 이력 없음</div>
+          {% endif %}
+        </div>
+
+        {# 출고 이력 #}
+        <div style="padding:16px 20px">
+          <div style="font-size:11px;font-weight:700;color:#ef4444;letter-spacing:.5px;margin-bottom:10px">
+            출고 이력 (총 {{ item.total_out }}개)
+          </div>
+          {% if item.outs %}
+          <table style="width:100%;font-size:12px">
+            <thead>
+              <tr>
+                <th style="background:none;color:#9ca3af;font-weight:600;padding:4px 6px;border-bottom:1px solid #f0f0f0">날짜</th>
+                <th style="background:none;color:#9ca3af;font-weight:600;padding:4px 6px;border-bottom:1px solid #f0f0f0;text-align:right">수량</th>
+                <th style="background:none;color:#9ca3af;font-weight:600;padding:4px 6px;border-bottom:1px solid #f0f0f0">출처</th>
+                <th style="background:none;color:#9ca3af;font-weight:600;padding:4px 6px;border-bottom:1px solid #f0f0f0">주문번호</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for s in item.outs %}
+            <tr>
+              <td style="padding:5px 6px;color:#6b7280">{{ s.date }}</td>
+              <td style="padding:5px 6px;text-align:right;font-weight:700;color:#ef4444">-{{ s.quantity }}개</td>
+              <td style="padding:5px 6px">
+                <span class="badge {{ 'bg-blue' if s.source == 'file' else 'bg-gray' }}" style="font-size:10px">
+                  {{ '파일' if s.source == 'file' else '수동' }}
+                </span>
+              </td>
+              <td style="padding:5px 6px;color:#9ca3af;font-size:11px">{{ s.order_number or '-' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div style="color:#d1d5db;font-size:12px;padding:8px 0">출고 이력 없음</div>
+          {% endif %}
+        </div>
+
+      </div>
+    </div>
+
+  {% endfor %}
+  </div>
+
+</div>
+{% endfor %}
+
+{% else %}
+<div class="card" style="padding:60px;text-align:center;color:#aaa">
+  입출고 이력이 없습니다.
+</div>
+{% endif %}
+
+<script>
+function tog(cid, aid) {
+  var el = document.getElementById(cid);
+  if (!el) return;
+  var open = el.style.display === 'none';
+  el.style.display = open ? '' : 'none';
+  var arr = document.getElementById(aid);
+  if (arr) arr.style.transform = open ? 'rotate(90deg)' : '';
+}
+</script>
+{% endblock %}

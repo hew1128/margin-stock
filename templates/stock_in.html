@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div><h1>입고 등록</h1><p>중국에서 상품을 받았을 때 등록하세요</p></div>
+  <a href="/" class="btn btn-secondary">← 대시보드</a>
+</div>
+
+<div class="card" style="max-width:480px">
+  <form method="POST">
+    <div class="form-group">
+      <label>상품 *</label>
+      <select name="product_id" class="form-control" required>
+        <option value="">상품 선택</option>
+        {% for p in products %}
+        <option value="{{ p.id }}">{{ p.name }}{% if p.option_name %} ({{ p.option_name }}){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="row2">
+      <div class="form-group">
+        <label>입고 수량 *</label>
+        <input type="number" name="quantity" class="form-control" min="1" required>
+      </div>
+      <div class="form-group">
+        <label>적용 환율 (위안→원) *</label>
+        <input type="number" step="0.1" name="exchange_rate" class="form-control"
+               value="{{ exchange_rate }}" required>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>입고 날짜 *</label>
+      <input type="date" name="date" class="form-control" value="{{ today }}" required>
+    </div>
+
+    <div class="form-group">
+      <label>메모</label>
+      <input type="text" name="memo" class="form-control" placeholder="선택사항">
+    </div>
+
+    <div class="flex mt">
+      <button type="submit" class="btn btn-success">입고 등록</button>
+      <a href="/" class="btn btn-secondary">취소</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

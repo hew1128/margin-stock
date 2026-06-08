@@ -1,0 +1,665 @@
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
+import sqlite3
+import os
+import re
+import tempfile
+import io
+from datetime import datetime
+import xlrd
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
+app = Flask(__name__)
+app.secret_key = 'margin_inventory_2024'
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.environ.get('DB_PATH', os.path.join(BASE_DIR, 'margin.db'))
+
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True) if os.path.dirname(DB_PATH) else None
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        option_name TEXT,
+        sale_price INTEGER NOT NULL,
+        purchase_price_cny REAL NOT NULL,
+        exchange_rate REAL DEFAULT 190,
+        customs_total INTEGER DEFAULT 0,
+        shipping_total INTEGER DEFAULT 0,
+        yongdal_total INTEGER DEFAULT 0,
+        import_quantity INTEGER DEFAULT 1,
+        naver_fee_rate REAL DEFAULT 2.0,
+        domestic_shipping INTEGER DEFAULT 2500,
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN exchange_rate REAL DEFAULT 190")
+    except Exception:
+        pass
+    c.execute('''CREATE TABLE IF NOT EXISTS product_keywords (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        keyword TEXT NOT NULL,
+        FOREIGN KEY (product_id) REFERENCES products(id)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS stock_in (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL,
+        exchange_rate REAL NOT NULL,
+        date TEXT NOT NULL,
+        memo TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (product_id) REFERENCES products(id)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS stock_out (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        source TEXT DEFAULT 'manual',
+        file_name TEXT,
+        order_number TEXT,
+        memo TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (product_id) REFERENCES products(id)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )''')
+    c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('exchange_rate', '190')")
+    # stock_in 없는 기존 상품 → import_quantity로 초기 입고 자동 생성
+    no_stock = c.execute("""
+        SELECT id, import_quantity, exchange_rate, created_at
+        FROM products
+        WHERE is_active=1 AND id NOT IN (SELECT DISTINCT product_id FROM stock_in)
+    """).fetchall()
+    for p in no_stock:
+        date_str = (p['created_at'] or '')[:10] or datetime.now().strftime('%Y-%m-%d')
+        c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
+            (p['id'], p['import_quantity'], p['exchange_rate'], date_str, '자동 초기 입고'))
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
+def get_setting(key, default=None):
+    conn = get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return row['value'] if row else default
+
+
+def calculate_margin(product, exchange_rate=None):
+    rate = float(exchange_rate or product['exchange_rate'] or 190)
+    sale = product['sale_price']
+    purchase_krw = product['purchase_price_cny'] * rate
+    customs_total = product['customs_total'] + product['shipping_total'] + product['yongdal_total']
+    qty = product['import_quantity'] or 1
+    customs_per_unit = customs_total / qty
+    naver_fee = sale * product['naver_fee_rate'] / 100
+    tax_amount = sale * 0.1
+    total_cost_simple  = purchase_krw + customs_per_unit + naver_fee + product['domestic_shipping']
+    total_cost_general = total_cost_simple + tax_amount
+    simple_margin  = sale - total_cost_simple
+    general_margin = sale - total_cost_general
+    return {
+        'purchase_krw':         round(purchase_krw, 1),
+        'customs_total':        customs_total,
+        'customs_per_unit':     round(customs_per_unit, 1),
+        'naver_fee':            round(naver_fee, 1),
+        'tax_amount':           round(tax_amount, 1),
+        'total_cost_simple':    round(total_cost_simple, 1),
+        'total_cost_general':   round(total_cost_general, 1),
+        'simple_margin':        round(simple_margin, 1),
+        'simple_margin_rate':   round(simple_margin / sale * 100, 1) if sale else 0,
+        'general_margin':       round(general_margin, 1),
+        'general_margin_rate':  round(general_margin / sale * 100, 1) if sale else 0,
+    }
+
+
+def get_current_stock(product_id):
+    conn = get_db()
+    in_qty = conn.execute("SELECT COALESCE(SUM(quantity),0) as t FROM stock_in WHERE product_id=?", (product_id,)).fetchone()['t']
+    out_qty = conn.execute("SELECT COALESCE(SUM(quantity),0) as t FROM stock_out WHERE product_id=?", (product_id,)).fetchone()['t']
+    conn.close()
+    return in_qty - out_qty
+
+
+def get_all_products_with_keywords():
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.*, GROUP_CONCAT(pk.keyword, '||') as kws
+        FROM products p
+        LEFT JOIN product_keywords pk ON p.id = pk.product_id
+        WHERE p.is_active = 1
+        GROUP BY p.id ORDER BY p.id DESC
+    """).fetchall()
+    conn.close()
+    return rows
+
+
+# ─── 대시보드 ───────────────────────────────────────────────────────────────────
+
+@app.route('/')
+def dashboard():
+    products = get_all_products_with_keywords()
+    items = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id'])} for p in products]
+
+    # 상품명으로 그룹핑 → 옵션별 재고 묶음
+    name_groups = {}
+    name_max_id = {}
+    for item in items:
+        name = item['p']['name']
+        pid  = item['p']['id']
+        if name not in name_groups:
+            name_groups[name] = []
+            name_max_id[name] = 0
+        name_groups[name].append(item)
+        if pid > name_max_id[name]:
+            name_max_id[name] = pid
+    name_order = sorted(name_groups.keys(), key=lambda n: name_max_id[n], reverse=True)
+    grouped = [(name, name_groups[name]) for name in name_order]
+    return render_template('dashboard.html', grouped=grouped)
+
+
+# ─── 상품 관리 ──────────────────────────────────────────────────────────────────
+
+@app.route('/products')
+def products():
+    prods = get_all_products_with_keywords()
+    data = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id'])} for p in prods]
+    # 이름 → 옵션 → 배치(최신순) 3단계 그룹핑
+    name_groups = {}   # name → {opt → [items]}
+    name_max_id = {}
+    for item in data:
+        name = item['p']['name']
+        opt  = item['p']['option_name'] or ''
+        pid  = item['p']['id']
+        if name not in name_groups:
+            name_groups[name] = {}
+            name_max_id[name] = 0
+        if opt not in name_groups[name]:
+            name_groups[name][opt] = []
+        name_groups[name][opt].append(item)
+        if pid > name_max_id[name]:
+            name_max_id[name] = pid
+    # 이름 그룹: 최근 배치 기준 최신순
+    name_order = sorted(name_groups.keys(), key=lambda n: name_max_id[n], reverse=True)
+    grouped = []
+    for name in name_order:
+        od = name_groups[name]
+        # 옵션: 각 옵션의 최신 배치 기준 최신순
+        opt_order = sorted(od.keys(), key=lambda o: max(i['p']['id'] for i in od[o]), reverse=True)
+        grouped.append((name, [(opt, od[opt]) for opt in opt_order]))
+    return render_template('products.html', grouped=grouped)
+
+
+@app.route('/products/new', methods=['GET', 'POST'])
+def product_new():
+    if request.method == 'POST':
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""INSERT INTO products
+            (name, option_name, sale_price, purchase_price_cny, exchange_rate,
+             customs_total, shipping_total, yongdal_total, import_quantity,
+             naver_fee_rate, domestic_shipping)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (request.form['name'], request.form.get('option_name', ''),
+             int(request.form['sale_price']), float(request.form['purchase_price_cny']),
+             float(request.form.get('exchange_rate') or 190),
+             int(request.form.get('customs_total') or 0), int(request.form.get('shipping_total') or 0),
+             int(request.form.get('yongdal_total') or 0), int(request.form.get('import_quantity') or 1),
+             float(request.form.get('naver_fee_rate') or 2.0), int(request.form.get('domestic_shipping') or 2500)))
+        pid = c.lastrowid
+        for kw in request.form.get('keywords', '').split('\n'):
+            kw = kw.strip()
+            if kw:
+                c.execute("INSERT INTO product_keywords (product_id, keyword) VALUES (?,?)", (pid, kw))
+        # 등록 시 입고 개수를 초기 재고로 자동 추가
+        init_qty = int(request.form.get('import_quantity') or 1)
+        init_rate = float(request.form.get('exchange_rate') or 190)
+        today = datetime.now().strftime('%Y-%m-%d')
+        c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
+            (pid, init_qty, init_rate, today, '상품 등록 초기 입고'))
+        conn.commit()
+        conn.close()
+        flash('상품이 등록되었습니다.')
+        return redirect(url_for('products'))
+    return render_template('product_form.html', product=None, keywords='')
+
+
+@app.route('/products/<int:pid>/edit', methods=['GET', 'POST'])
+def product_edit(pid):
+    if request.method == 'POST':
+        new_qty = int(request.form.get('import_quantity') or 1)
+        new_rate = float(request.form.get('exchange_rate') or 190)
+        conn = get_db()
+        conn.execute("""UPDATE products SET
+            name=?, option_name=?, sale_price=?, purchase_price_cny=?, exchange_rate=?,
+            customs_total=?, shipping_total=?, yongdal_total=?, import_quantity=?,
+            naver_fee_rate=?, domestic_shipping=?
+            WHERE id=?""",
+            (request.form['name'], request.form.get('option_name', ''),
+             int(request.form['sale_price']), float(request.form['purchase_price_cny']),
+             new_rate,
+             int(request.form.get('customs_total') or 0), int(request.form.get('shipping_total') or 0),
+             int(request.form.get('yongdal_total') or 0), new_qty,
+             float(request.form.get('naver_fee_rate') or 2.0), int(request.form.get('domestic_shipping') or 2500),
+             pid))
+        conn.execute("DELETE FROM product_keywords WHERE product_id=?", (pid,))
+        for kw in request.form.get('keywords', '').split('\n'):
+            kw = kw.strip()
+            if kw:
+                conn.execute("INSERT INTO product_keywords (product_id, keyword) VALUES (?,?)", (pid, kw))
+        # 자동 생성된 초기 입고 수량도 import_quantity에 맞춰 업데이트
+        conn.execute("""UPDATE stock_in SET quantity=?, exchange_rate=?
+                        WHERE product_id=?
+                          AND memo IN ('상품 등록 초기 입고', '자동 초기 입고')""",
+                     (new_qty, new_rate, pid))
+        conn.commit()
+        conn.close()
+        flash('상품이 수정되었습니다.')
+        return redirect(url_for('products'))
+
+    # GET
+    conn = get_db()
+    product = conn.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone()
+    kws = conn.execute("SELECT keyword FROM product_keywords WHERE product_id=?", (pid,)).fetchall()
+    keywords_text = '\n'.join(k['keyword'] for k in kws)
+    conn.close()
+    return render_template('product_form.html', product=product, keywords=keywords_text)
+
+
+@app.route('/products/<int:pid>/delete', methods=['POST'])
+def product_delete(pid):
+    conn = get_db()
+    conn.execute("UPDATE products SET is_active=0 WHERE id=?", (pid,))
+    conn.commit()
+    conn.close()
+    flash('상품이 삭제되었습니다.')
+    return redirect(url_for('products'))
+
+
+@app.route('/stock/add/<int:pid>', methods=['POST'])
+def stock_add(pid):
+    qty  = int(request.form.get('quantity') or 0)
+    memo = request.form.get('memo', '').strip() or '수동 재고 추가'
+    date = request.form.get('date') or datetime.now().strftime('%Y-%m-%d')
+    if qty <= 0:
+        flash('수량을 1개 이상 입력해주세요.')
+        return redirect(url_for('products'))
+    conn = get_db()
+    rate = conn.execute("SELECT exchange_rate FROM products WHERE id=?", (pid,)).fetchone()['exchange_rate']
+    conn.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
+                 (pid, qty, rate, date, memo))
+    conn.commit()
+    conn.close()
+    flash(f'{qty}개 재고가 추가되었습니다. ({memo})')
+    return redirect(url_for('products'))
+
+
+@app.route('/products/trash')
+def products_trash():
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.*, GROUP_CONCAT(pk.keyword, '||') as kws
+        FROM products p
+        LEFT JOIN product_keywords pk ON p.id = pk.product_id
+        WHERE p.is_active = 0
+        GROUP BY p.id ORDER BY p.id DESC
+    """).fetchall()
+    conn.close()
+    return render_template('products_trash.html', products=rows)
+
+
+@app.route('/products/<int:pid>/restore', methods=['POST'])
+def product_restore(pid):
+    conn = get_db()
+    conn.execute("UPDATE products SET is_active=1 WHERE id=?", (pid,))
+    conn.commit()
+    conn.close()
+    flash('상품이 복구되었습니다.')
+    return redirect(url_for('products_trash'))
+
+
+# ─── 입고 등록 ──────────────────────────────────────────────────────────────────
+
+@app.route('/stock/in', methods=['GET', 'POST'])
+def stock_in():
+    if request.method == 'POST':
+        conn = get_db()
+        conn.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
+            (int(request.form['product_id']), int(request.form['quantity']),
+             float(request.form['exchange_rate']), request.form['date'],
+             request.form.get('memo', '')))
+        conn.commit()
+        conn.close()
+        flash('입고가 등록되었습니다.')
+        return redirect(url_for('dashboard'))
+
+    products = get_all_products_with_keywords()
+    exchange_rate = get_setting('exchange_rate', '190')
+    today = datetime.now().strftime('%Y-%m-%d')
+    return render_template('stock_in.html', products=products, exchange_rate=exchange_rate, today=today)
+
+
+# ─── 발송파일 업로드 ────────────────────────────────────────────────────────────
+
+@app.route('/stock/upload', methods=['GET', 'POST'])
+def stock_upload():
+    if request.method == 'POST':
+        # 출고 확정
+        if request.form.get('confirm') == '1':
+            pending = session.pop('pending_out', [])
+            filename = session.pop('pending_file', '')
+            if pending:
+                today = datetime.now().strftime('%Y-%m-%d')
+                conn = get_db()
+                for r in pending:
+                    conn.execute("INSERT INTO stock_out (product_id, quantity, date, source, file_name, order_number) VALUES (?,?,?,'file',?,?)",
+                        (r['product_id'], r['quantity'], today, filename, r['order_number']))
+                conn.commit()
+                conn.close()
+                flash(f'{len(pending)}건 출고 처리되었습니다.')
+            return redirect(url_for('dashboard'))
+
+        # 파일 파싱
+        file = request.files.get('file')
+        if not file or not file.filename:
+            flash('파일을 선택해주세요.')
+            return redirect(request.url)
+
+        suffix = '.xls' if file.filename.lower().endswith('.xls') else '.xlsx'
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        file.save(tmp.name)
+        tmp.close()
+
+        try:
+            wb = xlrd.open_workbook(tmp.name)
+            ws = wb.sheet_by_index(0)
+            products = get_all_products_with_keywords()
+            results, unmatched = [], []
+
+            for ri in range(1, ws.nrows):
+                g_val = str(ws.cell_value(ri, 6))   # G열: 상품명+옵션+수량
+                j_val = str(ws.cell_value(ri, 9))   # J열: 배송메세지 (fallback)
+                order = str(ws.cell_value(ri, 0))   # A열: 주문번호
+
+                # G열에서 옵션명 추출: "옵션: 기본 연결형☞18EA"
+                opt_m = re.search(r'옵션[:\s]*(.+?)☞', g_val)
+                option_str = opt_m.group(1).strip() if opt_m else ''
+
+                # G열에서 수량 추출: "☞18EA"
+                qty_m = re.search(r'☞(\d+)\s*EA', g_val, re.IGNORECASE)
+                if not qty_m:
+                    # fallback: J열 "(총N개)"
+                    qty_m = re.search(r'총(\d+)개', j_val)
+                if not qty_m:
+                    unmatched.append({'order': order, 'name': g_val[:50], 'reason': '수량 파싱 불가'})
+                    continue
+
+                qty = int(qty_m.group(1))
+
+                # G열 전체 기준 — 키워드 많이 포함될수록 높은 점수, 최고점 상품 매칭
+                scored = []
+                for p in products:
+                    if p['kws']:
+                        kws = [kw.strip() for kw in p['kws'].split('||') if kw.strip()]
+                        score = sum(1 for kw in kws if kw in g_val)
+                        if score > 0:
+                            scored.append((score, p))
+                candidates = []
+                if scored:
+                    max_score = max(s for s, _ in scored)
+                    candidates = [p for s, p in scored if s == max_score]
+                # FIFO: 최고점 후보 중 재고 있는 가장 오래된 배치 우선
+                matched = None
+                for c in sorted(candidates, key=lambda x: x['id']):
+                    if get_current_stock(c['id']) > 0:
+                        matched = c
+                        break
+                if not matched and candidates:
+                    matched = min(candidates, key=lambda x: x['id'])
+
+                if matched:
+                    results.append({
+                        'product_id': matched['id'],
+                        'product_name': matched['name'],
+                        'option_name': matched['option_name'] or '',
+                        'quantity': qty,
+                        'order_number': order,
+                        'raw_name': g_val[:60],
+                        'option_str': option_str,
+                    })
+                else:
+                    unmatched.append({'order': order, 'name': f'{option_str or g_val[:40]}', 'reason': '상품 매칭 실패'})
+
+            os.unlink(tmp.name)
+            session['pending_out'] = results
+            session['pending_file'] = file.filename
+            return render_template('stock_upload.html', results=results, unmatched=unmatched, filename=file.filename)
+
+        except Exception as e:
+            os.unlink(tmp.name)
+            flash(f'파일 파싱 오류: {str(e)}')
+            return redirect(request.url)
+
+    # GET
+    pending = session.get('pending_out')
+    if pending:
+        return render_template('stock_upload.html', results=pending, unmatched=[], filename=session.get('pending_file', ''))
+    return render_template('stock_upload.html', results=None, unmatched=None, filename=None)
+
+
+# ─── 입출고 이력 ────────────────────────────────────────────────────────────────
+
+@app.route('/history')
+def history():
+    conn = get_db()
+    prods = get_all_products_with_keywords()
+
+    result = []
+    for p in prods:
+        pid = p['id']
+        total_in  = conn.execute("SELECT COALESCE(SUM(quantity),0) as t FROM stock_in  WHERE product_id=?", (pid,)).fetchone()['t']
+        total_out = conn.execute("SELECT COALESCE(SUM(quantity),0) as t FROM stock_out WHERE product_id=?", (pid,)).fetchone()['t']
+        ins  = conn.execute("SELECT * FROM stock_in  WHERE product_id=? ORDER BY date DESC, id DESC", (pid,)).fetchall()
+        outs = conn.execute("SELECT * FROM stock_out WHERE product_id=? ORDER BY date DESC, id DESC", (pid,)).fetchall()
+        if total_in > 0 or total_out > 0:
+            result.append({'p': p, 'total_in': total_in, 'total_out': total_out,
+                           'current': total_in - total_out, 'ins': ins, 'outs': outs})
+
+    conn.close()
+
+    # 상품명으로 그룹핑 (최신순)
+    name_groups = {}
+    name_max_id = {}
+    for item in result:
+        name = item['p']['name']
+        pid  = item['p']['id']
+        if name not in name_groups:
+            name_groups[name] = []
+            name_max_id[name] = 0
+        name_groups[name].append(item)
+        if pid > name_max_id[name]:
+            name_max_id[name] = pid
+    name_order = sorted(name_groups.keys(), key=lambda n: name_max_id[n], reverse=True)
+    grouped = [(name, name_groups[name]) for name in name_order]
+    return render_template('history.html', grouped=grouped)
+
+
+# ─── 엑셀 다운로드 ──────────────────────────────────────────────────────────────
+
+def _xl_header(ws, cols, fill_color='4F46E5'):
+    """헤더 행 스타일 적용"""
+    fill = PatternFill('solid', fgColor=fill_color)
+    font = Font(bold=True, color='FFFFFF', size=11)
+    border = Border(bottom=Side(style='thin', color='CCCCCC'))
+    for ci, (label, width) in enumerate(cols, 1):
+        c = ws.cell(1, ci, label)
+        c.fill = fill
+        c.font = font
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        c.border = border
+        ws.column_dimensions[get_column_letter(ci)].width = width
+    ws.row_dimensions[1].height = 22
+
+
+def _xl_row(ws, row, values, alt=False):
+    """데이터 행 스타일 적용"""
+    bg = 'F9FAFB' if alt else 'FFFFFF'
+    fill = PatternFill('solid', fgColor=bg)
+    border = Border(bottom=Side(style='thin', color='F0F0F0'))
+    for ci, val in enumerate(values, 1):
+        c = ws.cell(row, ci, val)
+        c.fill = fill
+        c.border = border
+        c.alignment = Alignment(vertical='center')
+        if isinstance(val, (int, float)):
+            c.alignment = Alignment(horizontal='right', vertical='center')
+
+
+@app.route('/download/products')
+def download_products():
+    prods = get_all_products_with_keywords()
+    data = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id'])} for p in prods]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '상품관리'
+    ws.freeze_panes = 'A2'
+
+    cols = [
+        ('상품명', 22), ('옵션명', 14),
+        ('판매가(원)', 13), ('사입가(위안)', 13), ('환율', 8),
+        ('관세합계', 12), ('운송비합계', 12), ('용달합계', 12), ('입고개수', 10),
+        ('개당통관비', 12), ('수수료율(%)', 12), ('수수료(원)', 12), ('국내택배비', 12), ('일반세금(원)', 12),
+        ('현재재고', 10),
+        ('간이총원가', 13), ('간이마진(원)', 13), ('간이마진율(%)', 13),
+        ('일반총원가', 13), ('일반마진(원)', 13), ('일반마진율(%)', 13),
+        ('키워드', 30),
+    ]
+    _xl_header(ws, cols)
+
+    for ri, item in enumerate(data, 2):
+        p, m, s = item['p'], item['m'], item['s']
+        kws = (p['kws'] or '').replace('||', ', ')
+        _xl_row(ws, ri, [
+            p['name'], p['option_name'] or '',
+            p['sale_price'], p['purchase_price_cny'], p['exchange_rate'],
+            p['customs_total'], p['shipping_total'], p['yongdal_total'], p['import_quantity'],
+            round(m['customs_per_unit'], 1), p['naver_fee_rate'], round(m['naver_fee'], 1),
+            p['domestic_shipping'], round(m['tax_amount'], 1),
+            s,
+            round(m['total_cost_simple'], 1), round(m['simple_margin'], 1), round(m['simple_margin_rate'], 1),
+            round(m['total_cost_general'], 1), round(m['general_margin'], 1), round(m['general_margin_rate'], 1),
+            kws,
+        ], alt=(ri % 2 == 0))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"상품관리_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@app.route('/download/stock')
+def download_stock():
+    prods = get_all_products_with_keywords()
+    data = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id'])} for p in prods]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '재고현황'
+    ws.freeze_panes = 'A2'
+
+    cols = [
+        ('상품명', 22), ('옵션명', 14), ('판매가(원)', 13), ('사입가(위안)', 13),
+        ('환율', 8), ('입고개수', 10), ('현재재고', 10),
+        ('간이총원가', 13), ('간이마진(원)', 13), ('간이마진율(%)', 13),
+        ('일반총원가', 13), ('일반마진(원)', 13), ('일반마진율(%)', 13),
+    ]
+    _xl_header(ws, cols)
+
+    for ri, item in enumerate(data, 2):
+        p, m, s = item['p'], item['m'], item['s']
+        _xl_row(ws, ri, [
+            p['name'], p['option_name'] or '',
+            p['sale_price'], p['purchase_price_cny'], p['exchange_rate'],
+            p['import_quantity'], s,
+            round(m['total_cost_simple'], 1), round(m['simple_margin'], 1), round(m['simple_margin_rate'], 1),
+            round(m['total_cost_general'], 1), round(m['general_margin'], 1), round(m['general_margin_rate'], 1),
+        ], alt=(ri % 2 == 0))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"재고현황_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@app.route('/download/history')
+def download_history():
+    conn = get_db()
+    ins = conn.execute("""
+        SELECT si.date, p.name, p.option_name, si.quantity, si.exchange_rate, si.memo
+        FROM stock_in si JOIN products p ON si.product_id = p.id
+        ORDER BY si.date DESC, si.id DESC
+    """).fetchall()
+    outs = conn.execute("""
+        SELECT so.date, p.name, p.option_name, so.quantity, so.source, so.file_name, so.order_number, so.memo
+        FROM stock_out so JOIN products p ON so.product_id = p.id
+        ORDER BY so.date DESC, so.id DESC
+    """).fetchall()
+    conn.close()
+
+    wb = openpyxl.Workbook()
+
+    # 입고 시트
+    ws_in = wb.active
+    ws_in.title = '입고이력'
+    ws_in.freeze_panes = 'A2'
+    _xl_header(ws_in, [
+        ('날짜', 12), ('상품명', 22), ('옵션명', 14),
+        ('수량', 8), ('환율', 8), ('메모', 28),
+    ], fill_color='059669')
+    for ri, row in enumerate(ins, 2):
+        _xl_row(ws_in, ri, list(row), alt=(ri % 2 == 0))
+
+    # 출고 시트
+    ws_out = wb.create_sheet('출고이력')
+    ws_out.freeze_panes = 'A2'
+    _xl_header(ws_out, [
+        ('날짜', 12), ('상품명', 22), ('옵션명', 14),
+        ('수량', 8), ('출처', 10), ('파일명', 30), ('주문번호', 18), ('메모', 20),
+    ], fill_color='DC2626')
+    for ri, row in enumerate(outs, 2):
+        _xl_row(ws_out, ri, list(row), alt=(ri % 2 == 0))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"입출고이력_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5001)
