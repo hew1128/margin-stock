@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div><h1>분석</h1><p>제품별 판매 추이</p></div>
+</div>
+
+{% if product_names %}
+{% for name in product_names %}
+{% set gi = loop.index %}
+<div style="margin-bottom:12px">
+
+  <div onclick="tog('ag{{gi}}','aa{{gi}}','{{name|replace("'","\\'"|safe)}}')"
+       style="display:flex;align-items:center;justify-content:space-between;
+              padding:14px 20px;background:#fff;border:1px solid #e5e7eb;
+              border-radius:10px;cursor:pointer;user-select:none"
+       onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='#fff'">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span id="aa{{gi}}" style="font-size:11px;color:#bbb;transition:transform .2s">▶</span>
+      <span style="font-size:16px;font-weight:700">{{ name }}</span>
+    </div>
+    <span style="font-size:12px;color:#9ca3af">클릭하여 추이 보기</span>
+  </div>
+
+  <div id="ag{{gi}}" style="display:none;background:#fff;border:1px solid #e5e7eb;
+       border-top:none;border-radius:0 0 10px 10px;padding:20px 24px">
+
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+      <button id="btn_{{gi}}_daily"   onclick="switchPeriod('{{gi}}','{{name|replace("'","\\'")}}','daily')"
+              style="padding:6px 14px;border-radius:6px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;cursor:pointer">일간</button>
+      <button id="btn_{{gi}}_weekly"  onclick="switchPeriod('{{gi}}','{{name|replace("'","\\'")}}','weekly')"
+              style="padding:6px 14px;border-radius:6px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;cursor:pointer">주간</button>
+      <button id="btn_{{gi}}_monthly" onclick="switchPeriod('{{gi}}','{{name|replace("'","\\'")}}','monthly')"
+              style="padding:6px 14px;border-radius:6px;border:1.5px solid #4f46e5;background:#4f46e5;color:#fff;font-size:12px;font-weight:600;cursor:pointer">월간</button>
+    </div>
+
+    <div style="position:relative;height:260px">
+      <canvas id="chart{{gi}}"></canvas>
+    </div>
+
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="card" style="padding:60px;text-align:center;color:#aaa">
+  출고 이력이 없습니다. 발송파일을 업로드하면 분석 데이터가 쌓입니다.
+</div>
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const ALL_DATA = {{ chart_data|safe }};
+const COLORS   = ['#4f46e5','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899'];
+const chartInst = {};
+const initialized = {};
+
+function tog(cid, aid, name) {
+  var el = document.getElementById(cid);
+  if (!el) return;
+  var open = el.style.display === 'none';
+  el.style.display = open ? '' : 'none';
+  var arr = document.getElementById(aid);
+  if (arr) arr.style.transform = open ? 'rotate(90deg)' : '';
+  if (open && !initialized[name]) {
+    initialized[name] = true;
+    // find gi from cid: 'ag1' → '1'
+    var gi = cid.replace('ag','');
+    switchPeriod(gi, name, 'monthly');
+  }
+}
+
+function getWeekKey(dateStr) {
+  var d = new Date(dateStr);
+  var day = d.getDay() || 7;
+  d.setDate(d.getDate() + 4 - day);
+  var y = d.getFullYear();
+  var start = new Date(y, 0, 1);
+  var w = Math.ceil(((d - start) / 86400000 + 1) / 7);
+  return y + '-W' + String(w).padStart(2,'0');
+}
+
+function getKey(dateStr, period) {
+  if (period === 'daily')   return dateStr;
+  if (period === 'monthly') return dateStr.slice(0,7);
+  return getWeekKey(dateStr);
+}
+
+function getLabels(period) {
+  var now = new Date(), labels = [], seen = {};
+  var n = period === 'daily' ? 30 : 12;
+  for (var i = n-1; i >= 0; i--) {
+    var d = new Date(now);
+    if (period === 'daily')        d.setDate(d.getDate() - i);
+    else if (period === 'weekly')  d.setDate(d.getDate() - i*7);
+    else                           d.setMonth(d.getMonth() - i);
+    var k = getKey(d.toISOString().slice(0,10), period);
+    if (!seen[k]) { seen[k]=1; labels.push(k); }
+  }
+  return labels;
+}
+
+function buildDatasets(optData, period) {
+  var labels = getLabels(period);
+  var datasets = [];
+  var ci = 0;
+  for (var opt in optData) {
+    var agg = {};
+    optData[opt].forEach(function(r){ var k=getKey(r.date,period); agg[k]=(agg[k]||0)+r.qty; });
+    datasets.push({
+      label: opt,
+      data: labels.map(function(l){ return agg[l]||0; }),
+      borderColor: COLORS[ci%COLORS.length],
+      backgroundColor: COLORS[ci%COLORS.length]+'30',
+      tension: 0.35,
+      fill: true,
+      pointRadius: 3,
+      pointHoverRadius: 5,
+    });
+    ci++;
+  }
+  return {labels: labels, datasets: datasets};
+}
+
+function switchPeriod(gi, name, period) {
+  ['daily','weekly','monthly'].forEach(function(p){
+    var btn = document.getElementById('btn_'+gi+'_'+p);
+    if (!btn) return;
+    if (p===period) {
+      btn.style.background='#4f46e5'; btn.style.color='#fff'; btn.style.borderColor='#4f46e5';
+    } else {
+      btn.style.background='#fff'; btn.style.color='#222'; btn.style.borderColor='#e0e0e0';
+    }
+  });
+
+  var optData = ALL_DATA[name];
+  if (!optData) return;
+  var bd = buildDatasets(optData, period);
+  var canvas = document.getElementById('chart'+gi);
+  if (!canvas) return;
+
+  if (chartInst[gi]) { chartInst[gi].destroy(); }
+  chartInst[gi] = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: bd,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { font: { size:12 }, boxWidth:14, padding:16 } },
+        tooltip: {
+          callbacks: {
+            label: function(ctx){ return ctx.dataset.label+': '+ctx.parsed.y+'개'; }
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color:'#f0f0f0' }, ticks: { font:{size:11}, maxRotation:45 } },
+        y: { grid: { color:'#f0f0f0' }, ticks: { font:{size:11}, stepSize:1 }, beginAtZero:true }
+      }
+    }
+  });
+}
+</script>
+{% endblock %}

@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 import sqlite3
 import os
 import re
+import json
 import tempfile
 import io
 from datetime import datetime
@@ -516,6 +517,41 @@ def history():
     name_order = sorted(name_groups.keys(), key=lambda n: name_max_id[n], reverse=True)
     grouped = [(name, name_groups[name]) for name in name_order]
     return render_template('history.html', grouped=grouped)
+
+
+# ─── 분석 ───────────────────────────────────────────────────────────────────────
+
+@app.route('/analytics')
+def analytics():
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.name, COALESCE(p.option_name,'') as opt, so.date, SUM(so.quantity) as qty
+        FROM stock_out so
+        JOIN products p ON so.product_id = p.id
+        GROUP BY p.name, p.option_name, so.date
+        ORDER BY p.name, p.option_name, so.date
+    """).fetchall()
+    conn.close()
+
+    data = {}
+    name_max_date = {}
+    for row in rows:
+        name = row['name']
+        opt  = row['opt'] or '기본'
+        if name not in data:
+            data[name] = {}
+            name_max_date[name] = ''
+        if opt not in data[name]:
+            data[name][opt] = []
+        data[name][opt].append({'date': row['date'], 'qty': row['qty']})
+        if row['date'] > name_max_date.get(name, ''):
+            name_max_date[name] = row['date']
+
+    name_order = sorted(data.keys(), key=lambda n: name_max_date.get(n, ''), reverse=True)
+    ordered = {n: data[n] for n in name_order}
+    return render_template('analytics.html',
+                           chart_data=json.dumps(ordered, ensure_ascii=False),
+                           product_names=name_order)
 
 
 # ─── 엑셀 다운로드 ──────────────────────────────────────────────────────────────
