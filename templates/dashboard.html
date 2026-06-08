@@ -14,8 +14,9 @@
     <thead>
       <tr>
         <th>상품명</th>
-        <th>옵션별 재고</th>
         <th class="tr">총재고</th>
+        <th>옵션</th>
+        <th class="tr">옵션재고</th>
         <th class="tr">판매가</th>
         <th class="tr">간이 마진</th>
         <th class="tr">간이 마진율</th>
@@ -24,49 +25,57 @@
       </tr>
     </thead>
     <tbody>
-    {% for name, items in grouped %}
-    {% set ns = namespace(total=0) %}
-    {% for item in items %}{% set ns.total = ns.total + item.s %}{% endfor %}
-    {# 마진은 가장 최근 배치(첫번째) 기준 #}
-    {% set latest = items[0] %}
+    {% for name, opt_rows, total_name_s in grouped %}
+    {% set row_count = opt_rows|length %}
+    {% for row in opt_rows %}
     <tr>
-      <td class="bold" style="font-size:14px">{{ name }}</td>
+      {# 상품명 + 총재고: 첫 번째 옵션 행에만 rowspan으로 표시 #}
+      {% if loop.first %}
+      <td class="bold" rowspan="{{ row_count }}"
+          style="font-size:14px;{% if row_count > 1 %}border-right:1px solid #e5e7eb;vertical-align:top;padding-top:14px{% endif %}">
+        {{ name }}
+      </td>
+      <td class="tr" rowspan="{{ row_count }}"
+          style="{% if row_count > 1 %}border-right:1px solid #e5e7eb;vertical-align:top;padding-top:10px{% endif %}">
+        <span class="badge {{ 'bg-green' if total_name_s > 10 else ('bg-yellow' if total_name_s > 0 else 'bg-red') }}"
+              style="font-size:13px;padding:4px 12px;font-weight:700">{{ total_name_s }}개</span>
+      </td>
+      {% endif %}
 
-      {# 옵션별 재고 뱃지 #}
+      {# 옵션명 #}
       <td>
-        <div style="display:flex;flex-wrap:wrap;gap:5px">
-        {% for item in items %}
-          <div style="display:flex;align-items:center;gap:4px">
-            {% if item.p.option_name %}
-            <span style="font-size:11px;color:#6b7280">{{ item.p.option_name }}</span>
-            {% endif %}
-            <span class="badge {{ 'bg-green' if item.s > 10 else ('bg-yellow' if item.s > 0 else 'bg-red') }}"
-                  style="font-size:11px;padding:2px 8px">{{ item.s }}개</span>
-          </div>
-        {% endfor %}
-        </div>
+        {% if row.opt %}
+        <span class="badge bg-blue" style="font-size:12px;padding:3px 10px">{{ row.opt }}</span>
+        {% else %}
+        <span style="font-size:12px;color:#9ca3af">단일</span>
+        {% endif %}
       </td>
 
+      {# 옵션 재고 #}
       <td class="tr">
-        <span class="badge {{ 'bg-green' if ns.total > 10 else ('bg-yellow' if ns.total > 0 else 'bg-red') }}"
-              style="font-size:13px;padding:4px 12px;font-weight:700">{{ ns.total }}개</span>
+        <span class="badge {{ 'bg-green' if row.total_s > 10 else ('bg-yellow' if row.total_s > 0 else 'bg-red') }}"
+              style="font-size:12px;padding:3px 10px">{{ row.total_s }}개</span>
       </td>
 
-      <td class="tr" style="font-weight:600">{{ '{:,}'.format(latest.p.sale_price) }}원</td>
+      {# 마진 (해당 옵션의 최신 배치 기준) #}
+      {% set p = row.latest.p %}
+      {% set m = row.latest.m %}
+      <td class="tr" style="font-weight:600">{{ '{:,}'.format(p.sale_price) }}원</td>
 
-      <td class="tr {{ 'green' if latest.m.simple_margin >= 0 else 'red' }}" style="font-weight:700">
-        {{ '{:,.0f}'.format(latest.m.simple_margin) }}원
+      <td class="tr {{ 'green' if m.simple_margin >= 0 else 'red' }}" style="font-weight:700">
+        {{ '{:,.0f}'.format(m.simple_margin) }}원
       </td>
-      <td class="tr {{ 'green' if latest.m.simple_margin_rate >= 0 else 'red' }}">
-        {{ '{:.1f}'.format(latest.m.simple_margin_rate) }}%
+      <td class="tr {{ 'green' if m.simple_margin_rate >= 0 else 'red' }}">
+        {{ '{:.1f}'.format(m.simple_margin_rate) }}%
       </td>
-      <td class="tr {{ 'green' if latest.m.general_margin >= 0 else 'red' }}" style="font-weight:700;color:#2563eb">
-        {{ '{:,.0f}'.format(latest.m.general_margin) }}원
+      <td class="tr {{ 'green' if m.general_margin >= 0 else 'red' }}" style="font-weight:700;color:#2563eb">
+        {{ '{:,.0f}'.format(m.general_margin) }}원
       </td>
       <td class="tr" style="color:#2563eb">
-        {{ '{:.1f}'.format(latest.m.general_margin_rate) }}%
+        {{ '{:.1f}'.format(m.general_margin_rate) }}%
       </td>
     </tr>
+    {% endfor %}
     {% endfor %}
     </tbody>
   </table>

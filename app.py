@@ -160,20 +160,35 @@ def dashboard():
     products = get_all_products_with_keywords()
     items = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id'])} for p in products]
 
-    # 상품명으로 그룹핑 → 옵션별 재고 묶음
+    # 상품명 → 옵션 → 배치 3단계 그룹핑
     name_groups = {}
     name_max_id = {}
     for item in items:
         name = item['p']['name']
+        opt  = item['p']['option_name'] or ''
         pid  = item['p']['id']
         if name not in name_groups:
-            name_groups[name] = []
+            name_groups[name] = {}
             name_max_id[name] = 0
-        name_groups[name].append(item)
+        if opt not in name_groups[name]:
+            name_groups[name][opt] = []
+        name_groups[name][opt].append(item)
         if pid > name_max_id[name]:
             name_max_id[name] = pid
+
     name_order = sorted(name_groups.keys(), key=lambda n: name_max_id[n], reverse=True)
-    grouped = [(name, name_groups[name]) for name in name_order]
+    grouped = []
+    for name in name_order:
+        od = name_groups[name]
+        opt_order = sorted(od.keys(), key=lambda o: max(i['p']['id'] for i in od[o]), reverse=True)
+        opt_rows = []
+        for opt in opt_order:
+            batches = od[opt]
+            latest = batches[0]
+            total_s = sum(b['s'] for b in batches)
+            opt_rows.append({'opt': opt, 'latest': latest, 'total_s': total_s})
+        total_name_s = sum(r['total_s'] for r in opt_rows)
+        grouped.append((name, opt_rows, total_name_s))
     return render_template('dashboard.html', grouped=grouped)
 
 
