@@ -259,20 +259,20 @@ def product_new():
         c = conn.cursor()
         # 공통 설정
         pg        = request.form.get('product_group', '')
-        rate      = float(request.form.get('exchange_rate') or 190)
         customs   = int(request.form.get('customs_total') or 0)
         shipping  = int(request.form.get('shipping_total') or 0)
         yongdal   = int(request.form.get('yongdal_total') or 0)
         nfr       = float(request.form.get('naver_fee_rate') or 2.0)
         dom_ship  = int(request.form.get('domestic_shipping') or 2500)
         today     = datetime.now().strftime('%Y-%m-%d')
-        # 묶음별 입고 개수
-        group_qtys = request.form.getlist('group_qtys[]')
+        # 묶음별 데이터 (입고 개수, 사입가, 환율은 묶음 레벨)
+        group_qtys  = request.form.getlist('group_qtys[]')
+        group_cnys  = request.form.getlist('group_cnys[]')
+        group_rates = request.form.getlist('group_rates[]')
         # 행 단위 데이터
         names   = request.form.getlist('names[]')
         opts    = request.form.getlist('option_names[]')
         prices  = request.form.getlist('sale_prices[]')
-        cnys    = request.form.getlist('purchase_prices_cny[]')
         gidxs   = request.form.getlist('group_indices[]')
 
         # 묶음 인덱스 → [product_id] 매핑
@@ -281,11 +281,11 @@ def product_new():
             if not name.strip():
                 continue
             gidx  = int(gidxs[i]) if i < len(gidxs) and gidxs[i] != '' else 0
-            opt   = opts[i].strip()   if i < len(opts)   else ''
-            price = int(prices[i])    if i < len(prices)  and prices[i]  else 0
-            cny   = float(cnys[i])    if i < len(cnys)    and cnys[i]    else 0
-            # import_quantity = 묶음 qty (마진 계산용)
-            qty = int(group_qtys[gidx]) if gidx < len(group_qtys) and group_qtys[gidx] else 1
+            opt   = opts[i].strip() if i < len(opts) else ''
+            price = int(prices[i])  if i < len(prices) and prices[i] else 0
+            qty   = int(group_qtys[gidx])  if gidx < len(group_qtys)  and group_qtys[gidx]  else 1
+            cny   = float(group_cnys[gidx]) if gidx < len(group_cnys) and group_cnys[gidx] else 0
+            rate  = float(group_rates[gidx]) if gidx < len(group_rates) and group_rates[gidx] else 190
             c.execute("""INSERT INTO products
                 (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
                  customs_total, shipping_total, yongdal_total, import_quantity,
@@ -301,7 +301,8 @@ def product_new():
         # 묶음별 stock_group_id 설정 + stock_in (마스터 1개만)
         count = 0
         for gidx, pids in groups.items():
-            qty = int(group_qtys[gidx]) if gidx < len(group_qtys) and group_qtys[gidx] else 1
+            qty  = int(group_qtys[gidx])   if gidx < len(group_qtys)  and group_qtys[gidx]  else 1
+            rate = float(group_rates[gidx]) if gidx < len(group_rates) and group_rates[gidx] else 190
             master = pids[0]
             for pid in pids:
                 c.execute("UPDATE products SET stock_group_id=? WHERE id=?", (master, pid))
