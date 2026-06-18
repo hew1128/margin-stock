@@ -5,54 +5,49 @@
   <a href="/products" class="btn btn-secondary">← 목록으로</a>
 </div>
 
+{% if product %}
+{# ===== 수정 폼: 단일 행 + 마진 계산기 ===== #}
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
-
-  <!-- 입력 영역 -->
   <div class="card">
     <form method="POST" id="pform">
       <div class="form-group">
         <label>실제 제품명 (그룹)</label>
         <input type="text" name="product_group" class="form-control"
-               value="{{ product.product_group if product else '' }}"
-               placeholder="예: 호스꼬임방지기 (여러 스토어 상품명을 묶는 이름)">
-        <p class="hint">같은 제품을 여러 스토어 상품명으로 판매할 때 입력 — 분석 화면에서 묶어서 비교</p>
+               value="{{ product.product_group or '' }}"
+               placeholder="예: 호스꼬임방지기">
+        <p class="hint">여러 스토어 상품명을 묶는 대표 이름 — 목록/분석에서 이 이름으로 표시</p>
       </div>
       <div class="row2">
         <div class="form-group">
-          <label>스토어 상품명 * <span style="font-weight:400;color:#888">(네이버에 등록된 정확한 이름)</span></label>
+          <label>스토어 상품명 *</label>
           <input type="text" name="name" class="form-control"
-                 value="{{ product.name if product else '' }}" required
-                 placeholder="예: 국내배송 호스 꼬임방지기 회전식...">
+                 value="{{ product.name }}" required>
         </div>
         <div class="form-group">
-          <label>옵션명 <span style="font-weight:400;color:#888">(정확한 이름)</span></label>
+          <label>옵션명 (정확한 이름)</label>
           <input type="text" name="option_name" class="form-control"
-                 value="{{ product.option_name if product else '' }}"
-                 placeholder="예: 기본 연결형">
+                 value="{{ product.option_name or '' }}"
+                 placeholder="없으면 비워두세요">
         </div>
       </div>
-
       <div class="row2">
         <div class="form-group">
           <label>판매금액 (원) *</label>
           <input type="number" id="sale_price" name="sale_price" class="form-control"
-                 value="{{ product.sale_price if product else '' }}" required oninput="calc()">
+                 value="{{ product.sale_price }}" required oninput="calc()">
         </div>
         <div class="form-group">
           <label>개당 사입가 (위안) *</label>
           <input type="number" step="0.01" id="purchase_price_cny" name="purchase_price_cny"
-                 class="form-control"
-                 value="{{ product.purchase_price_cny if product else '' }}" required oninput="calc()">
+                 class="form-control" value="{{ product.purchase_price_cny }}" required oninput="calc()">
         </div>
       </div>
-
       <div class="form-group">
         <label>구입 당시 환율 (위안→원) *</label>
         <input type="number" step="0.01" id="exchange_rate" name="exchange_rate"
                class="form-control" style="max-width:200px"
-               value="{{ product.exchange_rate if product else 190 }}" required oninput="calc()">
+               value="{{ product.exchange_rate }}" required oninput="calc()">
       </div>
-
       <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:10px">
         통관 비용 — 한 번에 들여온 묶음 기준 총액
       </div>
@@ -60,64 +55,53 @@
         <div class="form-group">
           <label>관세 합계 (원)</label>
           <input type="number" id="customs_total" name="customs_total" class="form-control"
-                 value="{{ product.customs_total if product else 0 }}" oninput="calc()">
+                 value="{{ product.customs_total }}" oninput="calc()">
         </div>
         <div class="form-group">
           <label>운송비 합계 (원)</label>
           <input type="number" id="shipping_total" name="shipping_total" class="form-control"
-                 value="{{ product.shipping_total if product else 0 }}" oninput="calc()">
+                 value="{{ product.shipping_total }}" oninput="calc()">
         </div>
         <div class="form-group">
           <label>용달 합계 (원)</label>
           <input type="number" id="yongdal_total" name="yongdal_total" class="form-control"
-                 value="{{ product.yongdal_total if product else 0 }}" oninput="calc()">
+                 value="{{ product.yongdal_total }}" oninput="calc()">
         </div>
       </div>
-
       <div class="row3">
         <div class="form-group">
           <label>입고 개수</label>
           <input type="number" id="import_quantity" name="import_quantity" class="form-control"
-                 value="{{ product.import_quantity if product else 1 }}" oninput="calc()">
+                 value="{{ product.import_quantity }}" oninput="calc()">
         </div>
         <div class="form-group">
           <label>네이버 수수료율 (%)</label>
           <input type="number" step="0.01" id="naver_fee_rate" name="naver_fee_rate"
-                 class="form-control"
-                 value="{{ product.naver_fee_rate if product else 2.0 }}" oninput="calc()">
+                 class="form-control" value="{{ product.naver_fee_rate }}" oninput="calc()">
         </div>
         <div class="form-group">
           <label>국내 택배비 (원)</label>
           <input type="number" id="domestic_shipping" name="domestic_shipping" class="form-control"
-                 value="{{ product.domestic_shipping if product else 2500 }}" oninput="calc()">
+                 value="{{ product.domestic_shipping }}" oninput="calc()">
         </div>
       </div>
-
       <div class="flex mt">
-        <button type="submit" class="btn btn-primary">
-          {{ '수정 완료' if product else '등록' }}
-        </button>
+        <button type="submit" class="btn btn-primary">수정 완료</button>
         <a href="/products" class="btn btn-secondary">취소</a>
       </div>
     </form>
   </div>
 
-  <!-- 계산 결과 영역 -->
   <div class="card" style="background:#f9fafb">
     <div class="card-title">📊 마진 계산 결과</div>
     <table style="font-size:13.5px">
       <colgroup><col style="width:55%"><col style="width:45%"></colgroup>
       <tbody>
-        <tr><td class="gray">총 사입가 (원)</td>
-            <td class="tr bold" id="r_purchase_krw">-</td></tr>
-        <tr><td class="gray">통관비 총합</td>
-            <td class="tr" id="r_customs_total">-</td></tr>
-        <tr><td class="gray">개당 통관비</td>
-            <td class="tr" id="r_customs_per_unit">-</td></tr>
-        <tr><td class="gray">네이버 수수료 (원)</td>
-            <td class="tr" id="r_naver_fee">-</td></tr>
-        <tr><td class="gray">일반사업자 세금 (10%)</td>
-            <td class="tr" id="r_tax">-</td></tr>
+        <tr><td class="gray">총 사입가 (원)</td><td class="tr bold" id="r_purchase_krw">-</td></tr>
+        <tr><td class="gray">통관비 총합</td><td class="tr" id="r_customs_total">-</td></tr>
+        <tr><td class="gray">개당 통관비</td><td class="tr" id="r_customs_per_unit">-</td></tr>
+        <tr><td class="gray">네이버 수수료 (원)</td><td class="tr" id="r_naver_fee">-</td></tr>
+        <tr><td class="gray">일반사업자 세금 (10%)</td><td class="tr" id="r_tax">-</td></tr>
         <tr style="border-top:2px solid #e0e0e0;background:#f0fdf4">
             <td class="bold" style="color:#065f46">총원가 — 간이과세</td>
             <td class="tr bold" style="color:#065f46" id="r_total_cost_simple">-</td></tr>
@@ -129,7 +113,7 @@
             <td class="tr green" id="r_simple_rate">-</td></tr>
         <tr style="height:8px"><td colspan="2"></td></tr>
         <tr style="background:#eff6ff">
-            <td class="bold" style="color:#1e40af">총원가 — 일반과세 <span style="font-weight:400;font-size:12px">(+세금 포함)</span></td>
+            <td class="bold" style="color:#1e40af">총원가 — 일반과세</td>
             <td class="tr bold" style="color:#1e40af" id="r_total_cost_general">-</td></tr>
         <tr style="background:#eff6ff">
             <td class="bold" style="color:#1e40af;padding-left:16px">일반 마진</td>
@@ -143,61 +127,121 @@
 </div>
 
 <script>
-function fmt(n) {
-  if (isNaN(n)) return '-';
-  return n.toLocaleString('ko-KR', {minimumFractionDigits:1, maximumFractionDigits:1}) + '원';
+function fmt(n) { return isNaN(n)?'-':n.toLocaleString('ko-KR',{minimumFractionDigits:1,maximumFractionDigits:1})+'원'; }
+function pct(n) { return isNaN(n)?'-':n.toFixed(1)+'%'; }
+function setEl(id,val,isM){ var e=document.getElementById(id); if(!e)return; e.textContent=val; if(isM){var n=parseFloat(val); e.style.color=n>=0?'#10b981':'#ef4444';} }
+function calc(){
+  var sale=parseFloat(document.getElementById('sale_price').value)||0;
+  var cny=parseFloat(document.getElementById('purchase_price_cny').value)||0;
+  var rate=parseFloat(document.getElementById('exchange_rate').value)||0;
+  var customs=parseFloat(document.getElementById('customs_total').value)||0;
+  var shipping=parseFloat(document.getElementById('shipping_total').value)||0;
+  var yongdal=parseFloat(document.getElementById('yongdal_total').value)||0;
+  var qty=parseFloat(document.getElementById('import_quantity').value)||1;
+  var nfr=parseFloat(document.getElementById('naver_fee_rate').value)||0;
+  var domestic=parseFloat(document.getElementById('domestic_shipping').value)||0;
+  var purchase_krw=cny*rate, ct=customs+shipping+yongdal, cpu=qty>0?ct/qty:0;
+  var nf=sale*nfr/100, tax=sale*0.1;
+  var tcs=purchase_krw+cpu+nf+domestic, tcg=tcs+tax;
+  var sm=sale-tcs, sr=sale>0?sm/sale*100:0, gm=sale-tcg, gr=sale>0?gm/sale*100:0;
+  setEl('r_purchase_krw',fmt(purchase_krw)); setEl('r_customs_total',fmt(ct));
+  setEl('r_customs_per_unit',fmt(cpu)); setEl('r_naver_fee',fmt(nf)); setEl('r_tax',fmt(tax));
+  setEl('r_total_cost_simple',fmt(tcs)); setEl('r_total_cost_general',fmt(tcg));
+  setEl('r_simple_margin',fmt(sm),true); setEl('r_simple_rate',pct(sr),true);
+  setEl('r_general_margin',fmt(gm),true); setEl('r_general_rate',pct(gr),true);
 }
-function pct(n) {
-  if (isNaN(n)) return '-';
-  return n.toFixed(1) + '%';
-}
-function setEl(id, val, isMargin) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = val;
-  if (isMargin) {
-    const num = parseFloat(val);
-    el.style.color = num >= 0 ? '#10b981' : '#ef4444';
-  }
-}
-
-function calc() {
-  const sale     = parseFloat(document.getElementById('sale_price').value) || 0;
-  const cny      = parseFloat(document.getElementById('purchase_price_cny').value) || 0;
-  const rate     = parseFloat(document.getElementById('exchange_rate').value) || 0;
-  const customs  = parseFloat(document.getElementById('customs_total').value) || 0;
-  const shipping = parseFloat(document.getElementById('shipping_total').value) || 0;
-  const yongdal  = parseFloat(document.getElementById('yongdal_total').value) || 0;
-  const qty      = parseFloat(document.getElementById('import_quantity').value) || 1;
-  const nfr      = parseFloat(document.getElementById('naver_fee_rate').value) || 0;
-  const domestic = parseFloat(document.getElementById('domestic_shipping').value) || 0;
-
-  const purchase_krw     = cny * rate;
-  const customs_total    = customs + shipping + yongdal;
-  const customs_per_unit = qty > 0 ? customs_total / qty : 0;
-  const naver_fee        = sale * nfr / 100;
-  const tax              = sale * 0.1;
-  const total_cost_simple  = purchase_krw + customs_per_unit + naver_fee + domestic;
-  const total_cost_general = total_cost_simple + tax;
-  const simple_margin      = sale - total_cost_simple;
-  const simple_rate        = sale > 0 ? simple_margin / sale * 100 : 0;
-  const general_margin     = sale - total_cost_general;
-  const general_rate       = sale > 0 ? general_margin / sale * 100 : 0;
-
-  setEl('r_purchase_krw',       fmt(purchase_krw));
-  setEl('r_customs_total',      fmt(customs_total));
-  setEl('r_customs_per_unit',   fmt(customs_per_unit));
-  setEl('r_naver_fee',          fmt(naver_fee));
-  setEl('r_tax',                fmt(tax));
-  setEl('r_total_cost_simple',  fmt(total_cost_simple));
-  setEl('r_total_cost_general', fmt(total_cost_general));
-  setEl('r_simple_margin',      fmt(simple_margin),  true);
-  setEl('r_simple_rate',        pct(simple_rate),    true);
-  setEl('r_general_margin',     fmt(general_margin), true);
-  setEl('r_general_rate',       pct(general_rate),   true);
-}
-
-// 페이지 로드 시 초기 계산
-window.addEventListener('DOMContentLoaded', calc);
+window.addEventListener('DOMContentLoaded',calc);
 </script>
+
+{% else %}
+{# ===== 신규 등록: 공통 설정 + 다중 행 ===== #}
+<form method="POST" id="pform">
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="form-group">
+      <label>실제 제품명 (그룹)</label>
+      <input type="text" name="product_group" class="form-control"
+             placeholder="예: 호스꼬임방지기">
+      <p class="hint">여러 스토어 상품명을 묶는 대표 이름 — 목록/분석에서 이 이름으로 표시</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title" style="margin-bottom:16px">공통 원가 설정</div>
+    <div class="form-group">
+      <label>구입 당시 환율 (위안→원) *</label>
+      <input type="number" step="0.01" name="exchange_rate" class="form-control"
+             style="max-width:200px" value="190" required>
+    </div>
+    <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:10px">통관 비용 — 묶음 기준 총액</div>
+    <div class="row3">
+      <div class="form-group">
+        <label>관세 합계 (원)</label>
+        <input type="number" name="customs_total" class="form-control" value="0">
+      </div>
+      <div class="form-group">
+        <label>운송비 합계 (원)</label>
+        <input type="number" name="shipping_total" class="form-control" value="0">
+      </div>
+      <div class="form-group">
+        <label>용달 합계 (원)</label>
+        <input type="number" name="yongdal_total" class="form-control" value="0">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="form-group">
+        <label>네이버 수수료율 (%)</label>
+        <input type="number" step="0.01" name="naver_fee_rate" class="form-control" value="2.0">
+      </div>
+      <div class="form-group">
+        <label>국내 택배비 (원)</label>
+        <input type="number" name="domestic_shipping" class="form-control" value="2500">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="card-title" style="margin:0">스토어 상품 목록</div>
+      <button type="button" onclick="addRow()" class="btn btn-secondary btn-sm">+ 추가</button>
+    </div>
+    <div style="display:grid;grid-template-columns:2.5fr 1fr 1fr 1fr 90px 36px;gap:8px;
+                font-size:11px;color:#9ca3af;font-weight:600;padding-bottom:8px;
+                border-bottom:1px solid #f3f4f6">
+      <span>스토어 상품명 *</span>
+      <span>옵션명</span>
+      <span>판매가(원) *</span>
+      <span>사입가(위안) *</span>
+      <span>입고 개수</span>
+      <span></span>
+    </div>
+    <div id="listing-rows"></div>
+    <div class="flex mt">
+      <button type="submit" class="btn btn-primary">등록</button>
+      <a href="/products" class="btn btn-secondary">취소</a>
+    </div>
+  </div>
+</form>
+
+<script>
+function addRow() {
+  var div = document.createElement('div');
+  div.style.cssText = 'display:grid;grid-template-columns:2.5fr 1fr 1fr 1fr 90px 36px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #f9fafb';
+  div.innerHTML =
+    '<input type="text" name="names[]" class="form-control" required placeholder="국내배송 호스 꼬임방지기 회전식...">'
+    +'<input type="text" name="option_names[]" class="form-control" placeholder="기본 연결형">'
+    +'<input type="number" name="sale_prices[]" class="form-control" required placeholder="12900">'
+    +'<input type="number" step="0.01" name="purchase_prices_cny[]" class="form-control" required placeholder="12.36">'
+    +'<input type="number" name="import_quantities[]" class="form-control" value="1" min="1">'
+    +'<button type="button" onclick="removeRow(this)" style="width:32px;height:32px;border:1px solid #fca5a5;background:#fff;border-radius:6px;cursor:pointer;color:#ef4444;font-size:18px;line-height:1;padding:0">×</button>';
+  document.getElementById('listing-rows').appendChild(div);
+}
+function removeRow(btn) {
+  var rows = document.getElementById('listing-rows').children;
+  if (rows.length <= 1) return;
+  btn.closest('div').remove();
+}
+window.addEventListener('DOMContentLoaded', function(){ addRow(); });
+</script>
+{% endif %}
 {% endblock %}

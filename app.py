@@ -165,35 +165,37 @@ def dashboard():
     products = get_all_products_with_keywords()
     items = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id'])} for p in products]
 
-    # 상품명 → 옵션 → 배치 3단계 그룹핑
-    name_groups = {}
-    name_max_id = {}
+    # product_group(또는 name) → (name, opt) 키 3단계 그룹핑
+    group_map  = {}
+    group_max_id = {}
     for item in items:
+        pg   = (item['p']['product_group'] or '').strip()
         name = item['p']['name']
         opt  = item['p']['option_name'] or ''
         pid  = item['p']['id']
-        if name not in name_groups:
-            name_groups[name] = {}
-            name_max_id[name] = 0
-        if opt not in name_groups[name]:
-            name_groups[name][opt] = []
-        name_groups[name][opt].append(item)
-        if pid > name_max_id[name]:
-            name_max_id[name] = pid
+        gkey = pg if pg else name
+        tkey = (name, opt)
+        if gkey not in group_map:
+            group_map[gkey] = {}
+            group_max_id[gkey] = 0
+        if tkey not in group_map[gkey]:
+            group_map[gkey][tkey] = []
+        group_map[gkey][tkey].append(item)
+        if pid > group_max_id[gkey]:
+            group_max_id[gkey] = pid
 
-    name_order = sorted(name_groups.keys(), key=lambda n: name_max_id[n], reverse=True)
+    group_order = sorted(group_map.keys(), key=lambda g: group_max_id[g], reverse=True)
     grouped = []
-    for name in name_order:
-        od = name_groups[name]
-        opt_order = sorted(od.keys(), key=lambda o: max(i['p']['id'] for i in od[o]), reverse=True)
-        opt_rows = []
-        for opt in opt_order:
-            batches = od[opt]
-            latest = batches[0]
-            total_s = sum(b['s'] for b in batches)
-            opt_rows.append({'opt': opt, 'latest': latest, 'total_s': total_s})
-        total_name_s = sum(r['total_s'] for r in opt_rows)
-        grouped.append((name, opt_rows, total_name_s))
+    for gkey in group_order:
+        od = group_map[gkey]
+        key_order = sorted(od.keys(), key=lambda k: max(i['p']['id'] for i in od[k]), reverse=True)
+        opt_rows, total_g = [], 0
+        for tkey in key_order:
+            its   = od[tkey]
+            opt_s = sum(i['s'] for i in its)
+            total_g += opt_s
+            opt_rows.append({'opt': tkey[1], 'listing': tkey[0], 'latest': its[0], 'total_s': opt_s})
+        grouped.append((gkey, opt_rows, total_g))
     return render_template('dashboard.html', grouped=grouped)
 
 
@@ -203,29 +205,32 @@ def dashboard():
 def products():
     prods = get_all_products_with_keywords()
     data = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id'])} for p in prods]
-    # 이름 → 옵션 → 배치(최신순) 3단계 그룹핑
-    name_groups = {}   # name → {opt → [items]}
-    name_max_id = {}
+    # product_group(또는 name) → (name, opt) 키 3단계 그룹핑
+    group_map  = {}
+    group_max_id = {}
     for item in data:
+        pg   = (item['p']['product_group'] or '').strip()
         name = item['p']['name']
         opt  = item['p']['option_name'] or ''
         pid  = item['p']['id']
-        if name not in name_groups:
-            name_groups[name] = {}
-            name_max_id[name] = 0
-        if opt not in name_groups[name]:
-            name_groups[name][opt] = []
-        name_groups[name][opt].append(item)
-        if pid > name_max_id[name]:
-            name_max_id[name] = pid
-    # 이름 그룹: 최근 배치 기준 최신순
-    name_order = sorted(name_groups.keys(), key=lambda n: name_max_id[n], reverse=True)
+        gkey = pg if pg else name
+        tkey = (name, opt)
+        if gkey not in group_map:
+            group_map[gkey] = {}
+            group_max_id[gkey] = 0
+        if tkey not in group_map[gkey]:
+            group_map[gkey][tkey] = []
+        group_map[gkey][tkey].append(item)
+        if pid > group_max_id[gkey]:
+            group_max_id[gkey] = pid
+
+    group_order = sorted(group_map.keys(), key=lambda g: group_max_id[g], reverse=True)
     grouped = []
-    for name in name_order:
-        od = name_groups[name]
-        # 옵션: 각 옵션의 최신 배치 기준 최신순
-        opt_order = sorted(od.keys(), key=lambda o: max(i['p']['id'] for i in od[o]), reverse=True)
-        grouped.append((name, [(opt, od[opt]) for opt in opt_order]))
+    for gkey in group_order:
+        od = group_map[gkey]
+        key_order = sorted(od.keys(), key=lambda k: max(i['p']['id'] for i in od[k]), reverse=True)
+        opt_list = [{'opt': k[1], 'listing': k[0], 'batches': od[k]} for k in key_order]
+        grouped.append((gkey, opt_list))
     return render_template('products.html', grouped=grouped)
 
 
@@ -234,28 +239,43 @@ def product_new():
     if request.method == 'POST':
         conn = get_db()
         c = conn.cursor()
-        c.execute("""INSERT INTO products
-            (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
-             customs_total, shipping_total, yongdal_total, import_quantity,
-             naver_fee_rate, domestic_shipping)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (request.form['name'], request.form.get('option_name', ''),
-             request.form.get('product_group', ''),
-             int(request.form['sale_price']), float(request.form['purchase_price_cny']),
-             float(request.form.get('exchange_rate') or 190),
-             int(request.form.get('customs_total') or 0), int(request.form.get('shipping_total') or 0),
-             int(request.form.get('yongdal_total') or 0), int(request.form.get('import_quantity') or 1),
-             float(request.form.get('naver_fee_rate') or 2.0), int(request.form.get('domestic_shipping') or 2500)))
-        pid = c.lastrowid
-        # 등록 시 입고 개수를 초기 재고로 자동 추가
-        init_qty = int(request.form.get('import_quantity') or 1)
-        init_rate = float(request.form.get('exchange_rate') or 190)
-        today = datetime.now().strftime('%Y-%m-%d')
-        c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
-            (pid, init_qty, init_rate, today, '상품 등록 초기 입고'))
+        # 공통 설정
+        pg       = request.form.get('product_group', '')
+        rate     = float(request.form.get('exchange_rate') or 190)
+        customs  = int(request.form.get('customs_total') or 0)
+        shipping = int(request.form.get('shipping_total') or 0)
+        yongdal  = int(request.form.get('yongdal_total') or 0)
+        nfr      = float(request.form.get('naver_fee_rate') or 2.0)
+        dom_ship = int(request.form.get('domestic_shipping') or 2500)
+        today    = datetime.now().strftime('%Y-%m-%d')
+        # 다중 행
+        names  = request.form.getlist('names[]')
+        opts   = request.form.getlist('option_names[]')
+        prices = request.form.getlist('sale_prices[]')
+        cnys   = request.form.getlist('purchase_prices_cny[]')
+        qtys   = request.form.getlist('import_quantities[]')
+        count  = 0
+        for i, name in enumerate(names):
+            if not name.strip():
+                continue
+            opt   = opts[i].strip()   if i < len(opts)   else ''
+            price = int(prices[i])    if i < len(prices)  and prices[i]  else 0
+            cny   = float(cnys[i])    if i < len(cnys)    and cnys[i]    else 0
+            qty   = int(qtys[i])      if i < len(qtys)    and qtys[i]    else 1
+            c.execute("""INSERT INTO products
+                (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
+                 customs_total, shipping_total, yongdal_total, import_quantity,
+                 naver_fee_rate, domestic_shipping)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (name.strip(), opt, pg, price, cny, rate,
+                 customs, shipping, yongdal, qty, nfr, dom_ship))
+            pid = c.lastrowid
+            c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
+                (pid, qty, rate, today, '상품 등록 초기 입고'))
+            count += 1
         conn.commit()
         conn.close()
-        flash('상품이 등록되었습니다.')
+        flash(f'{count}개 상품이 등록되었습니다.')
         return redirect(url_for('products'))
     return render_template('product_form.html', product=None, keywords='')
 

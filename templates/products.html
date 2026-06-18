@@ -16,10 +16,10 @@
 {% for name, opt_list in grouped %}
 {% set gi = loop.index %}
 
-{# ── 이름 그룹 전체 재고 합산 ── #}
+{# ── 그룹 전체 재고 합산 ── #}
 {% set ns = namespace(total=0) %}
-{% for opt, batches in opt_list %}
-  {% for item in batches %}{% set ns.total = ns.total + item.s %}{% endfor %}
+{% for optrow in opt_list %}
+  {% for item in optrow.batches %}{% set ns.total = ns.total + item.s %}{% endfor %}
 {% endfor %}
 
 <div style="margin-bottom:12px">
@@ -43,10 +43,10 @@
   <div id="n{{gi}}" style="display:none;border:1px solid #e5e7eb;border-top:none;
        border-radius:0 0 10px 10px;overflow:hidden">
 
-  {% for opt, batches in opt_list %}
+  {% for optrow in opt_list %}
   {% set oi = loop.index %}
   {% set os = namespace(total=0) %}
-  {% for item in batches %}{% set os.total = os.total + item.s %}{% endfor %}
+  {% for item in optrow.batches %}{% set os.total = os.total + item.s %}{% endfor %}
 
     {# 옵션 헤더 #}
     <div onclick="tog('opt{{gi}}_{{oi}}','oarr{{gi}}_{{oi}}')"
@@ -56,12 +56,17 @@
          onmouseover="this.style.background='#f1f3f5'" onmouseout="this.style.background='#f8f9fa'">
       <div style="display:flex;align-items:center;gap:10px">
         <span id="oarr{{gi}}_{{oi}}" style="font-size:11px;color:#bbb;transition:transform .2s">▶</span>
-        {% if opt %}
-        <span class="badge bg-blue" style="font-size:13px;padding:5px 14px">{{ opt }}</span>
-        {% else %}
-        <span style="font-size:13px;color:#777;font-weight:600">옵션 없음</span>
-        {% endif %}
-        <span class="badge bg-gray" style="font-size:11px">{{ batches|length }}배치</span>
+        <div>
+          {% if optrow.opt %}
+          <span class="badge bg-blue" style="font-size:13px;padding:5px 14px">{{ optrow.opt }}</span>
+          {% else %}
+          <span style="font-size:13px;color:#777;font-weight:600">옵션 없음</span>
+          {% endif %}
+          {% if optrow.listing != name %}
+          <div style="font-size:10px;color:#9ca3af;margin-top:2px;padding-left:2px">{{ optrow.listing[:40] }}{% if optrow.listing|length > 40 %}…{% endif %}</div>
+          {% endif %}
+        </div>
+        <span class="badge bg-gray" style="font-size:11px">{{ optrow.batches|length }}배치</span>
       </div>
       <span class="badge {{ 'bg-green' if os.total > 10 else ('bg-yellow' if os.total > 0 else 'bg-red') }}"
             style="font-size:14px;padding:6px 14px;font-weight:700">재고 {{ os.total }}개</span>
@@ -69,7 +74,7 @@
 
     {# 배치 목록 #}
     <div id="opt{{gi}}_{{oi}}" style="display:none">
-    {% for item in batches %}
+    {% for item in optrow.batches %}
     <div>
 
       {# ── Level 3: 배치 행 ── #}

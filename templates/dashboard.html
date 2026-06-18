@@ -49,6 +49,9 @@
         {% else %}
         <span style="font-size:12px;color:#9ca3af">단일</span>
         {% endif %}
+        {% if row.listing != name %}
+        <div style="font-size:10px;color:#9ca3af;margin-top:2px">{{ row.listing[:30] }}{% if row.listing|length > 30 %}…{% endif %}</div>
+        {% endif %}
       </td>
 
       {# 옵션 재고 #}
