@@ -1,41 +1,46 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="ph">
-  <div><h1>분석</h1><p>제품별 판매 추이</p></div>
+  <div><h1>분석</h1><p>스토어 상품명별 · 옵션별 판매 추이</p></div>
 </div>
 
-{% if product_names %}
-{% for name in product_names %}
+{% if group_names %}
+{% for gname in group_names %}
 {% set gi = loop.index %}
 <div style="margin-bottom:12px">
 
-  <div onclick="tog('ag{{gi}}','aa{{gi}}','{{name|replace("'","\\'"|safe)}}')"
+  <div onclick="togGroup({{gi}},{{gname|tojson}})"
        style="display:flex;align-items:center;justify-content:space-between;
               padding:14px 20px;background:#fff;border:1px solid #e5e7eb;
               border-radius:10px;cursor:pointer;user-select:none"
        onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='#fff'">
     <div style="display:flex;align-items:center;gap:10px">
-      <span id="aa{{gi}}" style="font-size:11px;color:#bbb;transition:transform .2s">▶</span>
-      <span style="font-size:16px;font-weight:700">{{ name }}</span>
+      <span id="garr{{gi}}" style="font-size:11px;color:#bbb;transition:transform .2s">▶</span>
+      <span style="font-size:16px;font-weight:700">{{ gname }}</span>
     </div>
     <span style="font-size:12px;color:#9ca3af">클릭하여 추이 보기</span>
   </div>
 
-  <div id="ag{{gi}}" style="display:none;background:#fff;border:1px solid #e5e7eb;
+  <div id="gbody{{gi}}" style="display:none;background:#fff;border:1px solid #e5e7eb;
        border-top:none;border-radius:0 0 10px 10px;padding:20px 24px">
 
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
-      <button id="btn_{{gi}}_daily"   onclick="switchPeriod('{{gi}}','{{name|replace("'","\\'")}}','daily')"
+      <button id="gbtn_{{gi}}_daily"   onclick="switchPeriod({{gi}},{{gname|tojson}},'daily')"
               style="padding:6px 14px;border-radius:6px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;cursor:pointer">일간</button>
-      <button id="btn_{{gi}}_weekly"  onclick="switchPeriod('{{gi}}','{{name|replace("'","\\'")}}','weekly')"
+      <button id="gbtn_{{gi}}_weekly"  onclick="switchPeriod({{gi}},{{gname|tojson}},'weekly')"
               style="padding:6px 14px;border-radius:6px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;cursor:pointer">주간</button>
-      <button id="btn_{{gi}}_monthly" onclick="switchPeriod('{{gi}}','{{name|replace("'","\\'")}}','monthly')"
+      <button id="gbtn_{{gi}}_monthly" onclick="switchPeriod({{gi}},{{gname|tojson}},'monthly')"
               style="padding:6px 14px;border-radius:6px;border:1.5px solid #4f46e5;background:#4f46e5;color:#fff;font-size:12px;font-weight:600;cursor:pointer">월간</button>
     </div>
 
-    <div style="position:relative;height:260px">
-      <canvas id="chart{{gi}}"></canvas>
+    <!-- 메인 차트 -->
+    <div style="position:relative;height:260px;margin-bottom:4px">
+      <canvas id="gchart{{gi}}"></canvas>
     </div>
+    <div id="gchartlabel{{gi}}" style="font-size:11px;color:#9ca3af;margin-bottom:20px"></div>
+
+    <!-- 리스팅별 옵션 상세 (여러 리스팅일 때만) -->
+    <div id="gdetail{{gi}}"></div>
 
   </div>
 </div>
@@ -50,115 +55,201 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 const ALL_DATA = {{ chart_data|safe }};
-const COLORS   = ['#4f46e5','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899'];
-const chartInst = {};
-const initialized = {};
+const COLORS = ['#4f46e5','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#64748b'];
+const gCharts = {};
+const lCharts = {};
+const gState  = {};  // gi → {gname, period, inited}
 
-function tog(cid, aid, name) {
-  var el = document.getElementById(cid);
-  if (!el) return;
-  var open = el.style.display === 'none';
-  el.style.display = open ? '' : 'none';
-  var arr = document.getElementById(aid);
-  if (arr) arr.style.transform = open ? 'rotate(90deg)' : '';
-  if (open && !initialized[name]) {
-    initialized[name] = true;
-    // find gi from cid: 'ag1' → '1'
-    var gi = cid.replace('ag','');
-    switchPeriod(gi, name, 'monthly');
-  }
+function getWeekKey(ds) {
+  var d = new Date(ds), day = d.getDay()||7;
+  d.setDate(d.getDate()+4-day);
+  var y = d.getFullYear(), s = new Date(y,0,1);
+  var w = Math.ceil(((d-s)/86400000+1)/7);
+  return y+'-W'+String(w).padStart(2,'0');
 }
-
-function getWeekKey(dateStr) {
-  var d = new Date(dateStr);
-  var day = d.getDay() || 7;
-  d.setDate(d.getDate() + 4 - day);
-  var y = d.getFullYear();
-  var start = new Date(y, 0, 1);
-  var w = Math.ceil(((d - start) / 86400000 + 1) / 7);
-  return y + '-W' + String(w).padStart(2,'0');
+function getKey(ds, period) {
+  return period==='daily' ? ds : period==='monthly' ? ds.slice(0,7) : getWeekKey(ds);
 }
-
-function getKey(dateStr, period) {
-  if (period === 'daily')   return dateStr;
-  if (period === 'monthly') return dateStr.slice(0,7);
-  return getWeekKey(dateStr);
-}
-
 function getLabels(period) {
-  var now = new Date(), labels = [], seen = {};
-  var n = period === 'daily' ? 30 : 12;
-  for (var i = n-1; i >= 0; i--) {
-    var d = new Date(now);
-    if (period === 'daily')        d.setDate(d.getDate() - i);
-    else if (period === 'weekly')  d.setDate(d.getDate() - i*7);
-    else                           d.setMonth(d.getMonth() - i);
-    var k = getKey(d.toISOString().slice(0,10), period);
+  var now=new Date(), labels=[], seen={}, n=period==='daily'?30:12;
+  for (var i=n-1;i>=0;i--) {
+    var d=new Date(now);
+    if (period==='daily')        d.setDate(d.getDate()-i);
+    else if (period==='weekly')  d.setDate(d.getDate()-i*7);
+    else                         d.setMonth(d.getMonth()-i);
+    var k=getKey(d.toISOString().slice(0,10),period);
     if (!seen[k]) { seen[k]=1; labels.push(k); }
   }
   return labels;
 }
 
-function buildDatasets(optData, period) {
+function chartConfig(labels, datasets) {
+  return {
+    type: 'line',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position:'top', labels:{ font:{size:11}, boxWidth:12, padding:12 } },
+        tooltip: { callbacks: { label: function(c){ return c.dataset.label+': '+c.parsed.y+'개'; } } }
+      },
+      scales: {
+        x: { grid:{color:'#f0f0f0'}, ticks:{font:{size:11},maxRotation:45} },
+        y: { grid:{color:'#f0f0f0'}, ticks:{font:{size:11},stepSize:1}, beginAtZero:true }
+      }
+    }
+  };
+}
+
+function makeDataset(label, dataArr, ci) {
+  return {
+    label: label,
+    data: dataArr,
+    borderColor: COLORS[ci%COLORS.length],
+    backgroundColor: COLORS[ci%COLORS.length]+'28',
+    tension: 0.35, fill: true, pointRadius: 3, pointHoverRadius: 5,
+  };
+}
+
+// 리스팅 비교 차트 (그룹 내 리스팅별 총 판매량)
+function renderGroupChart(gi, gname, period) {
+  var groupData = ALL_DATA[gname];
+  if (!groupData) return;
+  var labels = getLabels(period);
+  var listings = Object.keys(groupData);
+  var datasets = [];
+  var ci = 0;
+
+  if (listings.length === 1) {
+    // 리스팅 1개 → 옵션 비교 차트
+    var listingData = groupData[listings[0]];
+    for (var opt in listingData) {
+      var agg = {};
+      listingData[opt].forEach(function(r){ var k=getKey(r.date,period); agg[k]=(agg[k]||0)+r.qty; });
+      datasets.push(makeDataset(opt, labels.map(function(l){return agg[l]||0;}), ci++));
+    }
+    var label = document.getElementById('gchartlabel'+gi);
+    if (label) label.textContent = '옵션별 판매 추이';
+  } else {
+    // 리스팅 여러 개 → 리스팅 비교 차트
+    listings.forEach(function(listingName) {
+      var agg = {};
+      for (var opt in groupData[listingName]) {
+        groupData[listingName][opt].forEach(function(r){ var k=getKey(r.date,period); agg[k]=(agg[k]||0)+r.qty; });
+      }
+      var shortName = listingName.length>28 ? listingName.slice(0,28)+'…' : listingName;
+      datasets.push(makeDataset(shortName, labels.map(function(l){return agg[l]||0;}), ci++));
+    });
+    var label = document.getElementById('gchartlabel'+gi);
+    if (label) label.textContent = '스토어 상품명별 판매 비교 (옵션 합산)';
+  }
+
+  var canvas = document.getElementById('gchart'+gi);
+  if (!canvas) return;
+  if (gCharts[gi]) gCharts[gi].destroy();
+  gCharts[gi] = new Chart(canvas.getContext('2d'), chartConfig(labels, datasets));
+}
+
+// 리스팅별 옵션 상세 섹션 렌더링 (여러 리스팅일 때)
+function renderDetailSection(gi, gname, period) {
+  var groupData = ALL_DATA[gname];
+  var listings = Object.keys(groupData);
+  if (listings.length <= 1) return;
+
+  var container = document.getElementById('gdetail'+gi);
+  if (!container || container.dataset.built) {
+    // 이미 빌드됨 → 차트만 새로 그리기
+    if (container) {
+      listings.forEach(function(listingName, li) {
+        var lid = 'ld_'+gi+'_'+li;
+        var body = document.getElementById(lid);
+        if (body && body.style.display !== 'none') {
+          drawListingChart(lid, groupData[listingName], period);
+        }
+      });
+    }
+    return;
+  }
+
+  container.dataset.built = '1';
+  container.innerHTML = '<div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:8px;padding-top:4px;border-top:1px solid #f3f4f6">▼ 리스팅별 옵션 상세</div>';
+
+  listings.forEach(function(listingName, li) {
+    var lid = 'ld_'+gi+'_'+li;
+    var optCount = Object.keys(groupData[listingName]).length;
+    var div = document.createElement('div');
+    div.style.cssText = 'border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;overflow:hidden';
+    div.innerHTML =
+      '<div onclick="togDetail(\''+lid+'\',\''+gi+'\','+JSON.stringify(listingName)+')" '
+      +'style="padding:10px 16px;background:#f9fafb;cursor:pointer;display:flex;align-items:center;user-select:none">'
+      +'<span id="darr'+lid+'" style="font-size:10px;color:#bbb;margin-right:8px;transition:transform .2s">▶</span>'
+      +'<span style="font-size:13px;font-weight:600;flex:1">'+listingName+'</span>'
+      +'<span style="font-size:11px;color:#9ca3af">옵션 '+optCount+'개</span>'
+      +'</div>'
+      +'<div id="'+lid+'" style="display:none;padding:16px">'
+      +'<div style="position:relative;height:200px"><canvas id="lc_'+lid+'"></canvas></div>'
+      +'</div>';
+    container.appendChild(div);
+  });
+}
+
+function drawListingChart(lid, listingData, period) {
   var labels = getLabels(period);
   var datasets = [];
   var ci = 0;
-  for (var opt in optData) {
+  for (var opt in listingData) {
     var agg = {};
-    optData[opt].forEach(function(r){ var k=getKey(r.date,period); agg[k]=(agg[k]||0)+r.qty; });
-    datasets.push({
-      label: opt,
-      data: labels.map(function(l){ return agg[l]||0; }),
-      borderColor: COLORS[ci%COLORS.length],
-      backgroundColor: COLORS[ci%COLORS.length]+'30',
-      tension: 0.35,
-      fill: true,
-      pointRadius: 3,
-      pointHoverRadius: 5,
-    });
-    ci++;
+    listingData[opt].forEach(function(r){ var k=getKey(r.date,period); agg[k]=(agg[k]||0)+r.qty; });
+    datasets.push(makeDataset(opt, labels.map(function(l){return agg[l]||0;}), ci++));
   }
-  return {labels: labels, datasets: datasets};
+  var canvas = document.getElementById('lc_'+lid);
+  if (!canvas) return;
+  if (lCharts[lid]) lCharts[lid].destroy();
+  lCharts[lid] = new Chart(canvas.getContext('2d'), chartConfig(labels, datasets));
 }
 
-function switchPeriod(gi, name, period) {
-  ['daily','weekly','monthly'].forEach(function(p){
-    var btn = document.getElementById('btn_'+gi+'_'+p);
+function togDetail(lid, gi, listingName) {
+  var body = document.getElementById(lid);
+  var arr  = document.getElementById('darr'+lid);
+  if (!body) return;
+  var open = body.style.display === 'none';
+  body.style.display = open ? '' : 'none';
+  if (arr) arr.style.transform = open ? 'rotate(90deg)' : '';
+  if (open) {
+    var gname  = gState[gi] && gState[gi].gname;
+    var period = gState[gi] && gState[gi].period || 'monthly';
+    if (gname && ALL_DATA[gname] && ALL_DATA[gname][listingName]) {
+      drawListingChart(lid, ALL_DATA[gname][listingName], period);
+    }
+  }
+}
+
+function togGroup(gi, gname) {
+  var body = document.getElementById('gbody'+gi);
+  var arr  = document.getElementById('garr'+gi);
+  if (!body) return;
+  var open = body.style.display === 'none';
+  body.style.display = open ? '' : 'none';
+  if (arr) arr.style.transform = open ? 'rotate(90deg)' : '';
+  if (open && !(gState[gi] && gState[gi].inited)) {
+    gState[gi] = { gname: gname, period: 'monthly', inited: true };
+    renderGroupChart(gi, gname, 'monthly');
+    renderDetailSection(gi, gname, 'monthly');
+  }
+}
+
+function switchPeriod(gi, gname, period) {
+  ['daily','weekly','monthly'].forEach(function(p) {
+    var btn = document.getElementById('gbtn_'+gi+'_'+p);
     if (!btn) return;
-    if (p===period) {
-      btn.style.background='#4f46e5'; btn.style.color='#fff'; btn.style.borderColor='#4f46e5';
-    } else {
-      btn.style.background='#fff'; btn.style.color='#222'; btn.style.borderColor='#e0e0e0';
-    }
+    if (p===period) { btn.style.background='#4f46e5'; btn.style.color='#fff'; btn.style.borderColor='#4f46e5'; }
+    else            { btn.style.background='#fff';    btn.style.color='#222'; btn.style.borderColor='#e0e0e0'; }
   });
-
-  var optData = ALL_DATA[name];
-  if (!optData) return;
-  var bd = buildDatasets(optData, period);
-  var canvas = document.getElementById('chart'+gi);
-  if (!canvas) return;
-
-  if (chartInst[gi]) { chartInst[gi].destroy(); }
-  chartInst[gi] = new Chart(canvas.getContext('2d'), {
-    type: 'line',
-    data: bd,
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'top', labels: { font: { size:12 }, boxWidth:14, padding:16 } },
-        tooltip: {
-          callbacks: {
-            label: function(ctx){ return ctx.dataset.label+': '+ctx.parsed.y+'개'; }
-          }
-        }
-      },
-      scales: {
-        x: { grid: { color:'#f0f0f0' }, ticks: { font:{size:11}, maxRotation:45 } },
-        y: { grid: { color:'#f0f0f0' }, ticks: { font:{size:11}, stepSize:1 }, beginAtZero:true }
-      }
-    }
-  });
+  if (!gState[gi]) gState[gi] = { gname: gname, inited: true };
+  gState[gi].period = period;
+  gState[gi].gname  = gname;
+  renderGroupChart(gi, gname, period);
+  renderDetailSection(gi, gname, period);
 }
 </script>
 {% endblock %}

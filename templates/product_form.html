@@ -10,17 +10,25 @@
   <!-- 입력 영역 -->
   <div class="card">
     <form method="POST" id="pform">
+      <div class="form-group">
+        <label>실제 제품명 (그룹)</label>
+        <input type="text" name="product_group" class="form-control"
+               value="{{ product.product_group if product else '' }}"
+               placeholder="예: 호스꼬임방지기 (여러 스토어 상품명을 묶는 이름)">
+        <p class="hint">같은 제품을 여러 스토어 상품명으로 판매할 때 입력 — 분석 화면에서 묶어서 비교</p>
+      </div>
       <div class="row2">
         <div class="form-group">
-          <label>상품명 *</label>
+          <label>스토어 상품명 * <span style="font-weight:400;color:#888">(네이버에 등록된 정확한 이름)</span></label>
           <input type="text" name="name" class="form-control"
-                 value="{{ product.name if product else '' }}" required>
+                 value="{{ product.name if product else '' }}" required
+                 placeholder="예: 국내배송 호스 꼬임방지기 회전식...">
         </div>
         <div class="form-group">
-          <label>옵션명</label>
+          <label>옵션명 <span style="font-weight:400;color:#888">(정확한 이름)</span></label>
           <input type="text" name="option_name" class="form-control"
                  value="{{ product.option_name if product else '' }}"
-                 placeholder="없으면 비워두세요">
+                 placeholder="예: 기본 연결형">
         </div>
       </div>
 
@@ -83,14 +91,6 @@
           <input type="number" id="domestic_shipping" name="domestic_shipping" class="form-control"
                  value="{{ product.domestic_shipping if product else 2500 }}" oninput="calc()">
         </div>
-      </div>
-
-      <div class="form-group">
-        <label>매칭 키워드 (발송파일 G열 매칭용)</label>
-        <textarea name="keywords" class="form-control" rows="3"
-          placeholder="한 줄에 하나씩&#10;예:&#10;꼬임방지기&#10;일체형">{{ keywords }}</textarea>
-        <p class="hint">키워드를 여러 줄 입력하면 <b>모두 포함</b>될 때만 매칭 (AND 조건)<br>
-          예) 꼬임방지기 + 일체형 → 다른 상품의 일체형과 구분 가능</p>
       </div>
 
       <div class="flex mt">

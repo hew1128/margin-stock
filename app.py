@@ -48,6 +48,10 @@ def init_db():
         c.execute("ALTER TABLE products ADD COLUMN exchange_rate REAL DEFAULT 190")
     except Exception:
         pass
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN product_group TEXT")
+    except Exception:
+        pass
     c.execute('''CREATE TABLE IF NOT EXISTS product_keywords (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         product_id INTEGER NOT NULL,
@@ -231,21 +235,18 @@ def product_new():
         conn = get_db()
         c = conn.cursor()
         c.execute("""INSERT INTO products
-            (name, option_name, sale_price, purchase_price_cny, exchange_rate,
+            (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
              customs_total, shipping_total, yongdal_total, import_quantity,
              naver_fee_rate, domestic_shipping)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (request.form['name'], request.form.get('option_name', ''),
+             request.form.get('product_group', ''),
              int(request.form['sale_price']), float(request.form['purchase_price_cny']),
              float(request.form.get('exchange_rate') or 190),
              int(request.form.get('customs_total') or 0), int(request.form.get('shipping_total') or 0),
              int(request.form.get('yongdal_total') or 0), int(request.form.get('import_quantity') or 1),
              float(request.form.get('naver_fee_rate') or 2.0), int(request.form.get('domestic_shipping') or 2500)))
         pid = c.lastrowid
-        for kw in request.form.get('keywords', '').split('\n'):
-            kw = kw.strip()
-            if kw:
-                c.execute("INSERT INTO product_keywords (product_id, keyword) VALUES (?,?)", (pid, kw))
         # 등록 시 입고 개수를 초기 재고로 자동 추가
         init_qty = int(request.form.get('import_quantity') or 1)
         init_rate = float(request.form.get('exchange_rate') or 190)
@@ -266,22 +267,18 @@ def product_edit(pid):
         new_rate = float(request.form.get('exchange_rate') or 190)
         conn = get_db()
         conn.execute("""UPDATE products SET
-            name=?, option_name=?, sale_price=?, purchase_price_cny=?, exchange_rate=?,
+            name=?, option_name=?, product_group=?, sale_price=?, purchase_price_cny=?, exchange_rate=?,
             customs_total=?, shipping_total=?, yongdal_total=?, import_quantity=?,
             naver_fee_rate=?, domestic_shipping=?
             WHERE id=?""",
             (request.form['name'], request.form.get('option_name', ''),
+             request.form.get('product_group', ''),
              int(request.form['sale_price']), float(request.form['purchase_price_cny']),
              new_rate,
              int(request.form.get('customs_total') or 0), int(request.form.get('shipping_total') or 0),
              int(request.form.get('yongdal_total') or 0), new_qty,
              float(request.form.get('naver_fee_rate') or 2.0), int(request.form.get('domestic_shipping') or 2500),
              pid))
-        conn.execute("DELETE FROM product_keywords WHERE product_id=?", (pid,))
-        for kw in request.form.get('keywords', '').split('\n'):
-            kw = kw.strip()
-            if kw:
-                conn.execute("INSERT INTO product_keywords (product_id, keyword) VALUES (?,?)", (pid, kw))
         # 자동 생성된 초기 입고 수량도 import_quantity에 맞춰 업데이트
         conn.execute("""UPDATE stock_in SET quantity=?, exchange_rate=?
                         WHERE product_id=?
@@ -431,14 +428,19 @@ def stock_upload():
 
                 qty = int(qty_m.group(1))
 
-                # G열 전체 기준 — 키워드 많이 포함될수록 높은 점수, 최고점 상품 매칭
+                # 상품명 기반 매칭 — p.name 이 G열에 포함되면 매칭, 옵션명도 일치하면 우선
                 scored = []
                 for p in products:
-                    if p['kws']:
-                        kws = [kw.strip() for kw in p['kws'].split('||') if kw.strip()]
-                        score = sum(1 for kw in kws if kw in g_val)
-                        if score > 0:
-                            scored.append((score, p))
+                    pname = (p['name'] or '').strip()
+                    popt  = (p['option_name'] or '').strip()
+                    if not pname or pname not in g_val:
+                        continue
+                    score = len(pname)  # 긴 이름일수록 구체적 매칭
+                    if popt and option_str and popt in option_str:
+                        score += 100000
+                    elif popt and popt in g_val:
+                        score += 50000
+                    scored.append((score, p))
                 candidates = []
                 if scored:
                     max_score = max(s for s, _ in scored)
@@ -476,10 +478,21 @@ def stock_upload():
             return redirect(request.url)
 
     # GET
+    if request.args.get('reset'):
+        session.pop('pending_out', None)
+        session.pop('pending_file', None)
+        return render_template('stock_upload.html', results=None, unmatched=None, filename=None)
     pending = session.get('pending_out')
     if pending:
         return render_template('stock_upload.html', results=pending, unmatched=[], filename=session.get('pending_file', ''))
     return render_template('stock_upload.html', results=None, unmatched=None, filename=None)
+
+
+@app.route('/stock/upload/cancel')
+def stock_upload_cancel():
+    session.pop('pending_out', None)
+    session.pop('pending_file', None)
+    return redirect(url_for('dashboard'))
 
 
 # ─── 입출고 이력 ────────────────────────────────────────────────────────────────
@@ -525,33 +538,38 @@ def history():
 def analytics():
     conn = get_db()
     rows = conn.execute("""
-        SELECT p.name, COALESCE(p.option_name,'') as opt, so.date, SUM(so.quantity) as qty
+        SELECT COALESCE(NULLIF(p.product_group,''), p.name) as grp,
+               p.name, COALESCE(p.option_name,'') as opt,
+               so.date, SUM(so.quantity) as qty
         FROM stock_out so
         JOIN products p ON so.product_id = p.id
-        GROUP BY p.name, p.option_name, so.date
-        ORDER BY p.name, p.option_name, so.date
+        GROUP BY grp, p.name, p.option_name, so.date
+        ORDER BY grp, p.name, p.option_name, so.date
     """).fetchall()
     conn.close()
 
     data = {}
-    name_max_date = {}
+    group_max_date = {}
     for row in rows:
+        grp  = row['grp']
         name = row['name']
         opt  = row['opt'] or '기본'
-        if name not in data:
-            data[name] = {}
-            name_max_date[name] = ''
-        if opt not in data[name]:
-            data[name][opt] = []
-        data[name][opt].append({'date': row['date'], 'qty': row['qty']})
-        if row['date'] > name_max_date.get(name, ''):
-            name_max_date[name] = row['date']
+        if grp not in data:
+            data[grp] = {}
+            group_max_date[grp] = ''
+        if name not in data[grp]:
+            data[grp][name] = {}
+        if opt not in data[grp][name]:
+            data[grp][name][opt] = []
+        data[grp][name][opt].append({'date': row['date'], 'qty': row['qty']})
+        if row['date'] > group_max_date.get(grp, ''):
+            group_max_date[grp] = row['date']
 
-    name_order = sorted(data.keys(), key=lambda n: name_max_date.get(n, ''), reverse=True)
-    ordered = {n: data[n] for n in name_order}
+    group_order = sorted(data.keys(), key=lambda g: group_max_date.get(g, ''), reverse=True)
+    ordered = {g: data[g] for g in group_order}
     return render_template('analytics.html',
                            chart_data=json.dumps(ordered, ensure_ascii=False),
-                           product_names=name_order)
+                           group_names=group_order)
 
 
 # ─── 엑셀 다운로드 ──────────────────────────────────────────────────────────────
