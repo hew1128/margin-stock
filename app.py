@@ -52,6 +52,10 @@ def init_db():
         c.execute("ALTER TABLE products ADD COLUMN product_group TEXT")
     except Exception:
         pass
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN stock_group_id INTEGER")
+    except Exception:
+        pass
     c.execute('''CREATE TABLE IF NOT EXISTS product_keywords (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         product_id INTEGER NOT NULL,
@@ -86,10 +90,13 @@ def init_db():
     )''')
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('exchange_rate', '190')")
     # stock_in 없는 기존 상품 → import_quantity로 초기 입고 자동 생성
+    # 단, 재고 공유 그룹의 비-마스터 상품(stock_group_id != id)은 제외
     no_stock = c.execute("""
         SELECT id, import_quantity, exchange_rate, created_at
         FROM products
-        WHERE is_active=1 AND id NOT IN (SELECT DISTINCT product_id FROM stock_in)
+        WHERE is_active=1
+          AND id NOT IN (SELECT DISTINCT product_id FROM stock_in)
+          AND (stock_group_id IS NULL OR stock_group_id = id)
     """).fetchall()
     for p in no_stock:
         date_str = (p['created_at'] or '')[:10] or datetime.now().strftime('%Y-%m-%d')
@@ -139,8 +146,19 @@ def calculate_margin(product, exchange_rate=None):
 
 def get_current_stock(product_id):
     conn = get_db()
-    in_qty = conn.execute("SELECT COALESCE(SUM(quantity),0) as t FROM stock_in WHERE product_id=?", (product_id,)).fetchone()['t']
-    out_qty = conn.execute("SELECT COALESCE(SUM(quantity),0) as t FROM stock_out WHERE product_id=?", (product_id,)).fetchone()['t']
+    row = conn.execute("SELECT stock_group_id FROM products WHERE id=?", (product_id,)).fetchone()
+    gid = row['stock_group_id'] if row else None
+    if gid:
+        peers = [r['id'] for r in conn.execute(
+            "SELECT id FROM products WHERE stock_group_id=?", (gid,)).fetchall()]
+        if not peers:
+            peers = [product_id]
+        ph = ','.join('?' * len(peers))
+        in_qty  = conn.execute(f"SELECT COALESCE(SUM(quantity),0) as t FROM stock_in  WHERE product_id IN ({ph})", peers).fetchone()['t']
+        out_qty = conn.execute(f"SELECT COALESCE(SUM(quantity),0) as t FROM stock_out WHERE product_id IN ({ph})", peers).fetchone()['t']
+    else:
+        in_qty  = conn.execute("SELECT COALESCE(SUM(quantity),0) as t FROM stock_in  WHERE product_id=?", (product_id,)).fetchone()['t']
+        out_qty = conn.execute("SELECT COALESCE(SUM(quantity),0) as t FROM stock_out WHERE product_id=?", (product_id,)).fetchone()['t']
     conn.close()
     return in_qty - out_qty
 
@@ -240,28 +258,34 @@ def product_new():
         conn = get_db()
         c = conn.cursor()
         # 공통 설정
-        pg       = request.form.get('product_group', '')
-        rate     = float(request.form.get('exchange_rate') or 190)
-        customs  = int(request.form.get('customs_total') or 0)
-        shipping = int(request.form.get('shipping_total') or 0)
-        yongdal  = int(request.form.get('yongdal_total') or 0)
-        nfr      = float(request.form.get('naver_fee_rate') or 2.0)
-        dom_ship = int(request.form.get('domestic_shipping') or 2500)
-        today    = datetime.now().strftime('%Y-%m-%d')
-        # 다중 행
-        names  = request.form.getlist('names[]')
-        opts   = request.form.getlist('option_names[]')
-        prices = request.form.getlist('sale_prices[]')
-        cnys   = request.form.getlist('purchase_prices_cny[]')
-        qtys   = request.form.getlist('import_quantities[]')
-        count  = 0
+        pg        = request.form.get('product_group', '')
+        rate      = float(request.form.get('exchange_rate') or 190)
+        customs   = int(request.form.get('customs_total') or 0)
+        shipping  = int(request.form.get('shipping_total') or 0)
+        yongdal   = int(request.form.get('yongdal_total') or 0)
+        nfr       = float(request.form.get('naver_fee_rate') or 2.0)
+        dom_ship  = int(request.form.get('domestic_shipping') or 2500)
+        today     = datetime.now().strftime('%Y-%m-%d')
+        # 묶음별 입고 개수
+        group_qtys = request.form.getlist('group_qtys[]')
+        # 행 단위 데이터
+        names   = request.form.getlist('names[]')
+        opts    = request.form.getlist('option_names[]')
+        prices  = request.form.getlist('sale_prices[]')
+        cnys    = request.form.getlist('purchase_prices_cny[]')
+        gidxs   = request.form.getlist('group_indices[]')
+
+        # 묶음 인덱스 → [product_id] 매핑
+        groups = {}
         for i, name in enumerate(names):
             if not name.strip():
                 continue
+            gidx  = int(gidxs[i]) if i < len(gidxs) and gidxs[i] != '' else 0
             opt   = opts[i].strip()   if i < len(opts)   else ''
             price = int(prices[i])    if i < len(prices)  and prices[i]  else 0
             cny   = float(cnys[i])    if i < len(cnys)    and cnys[i]    else 0
-            qty   = int(qtys[i])      if i < len(qtys)    and qtys[i]    else 1
+            # import_quantity = 묶음 qty (마진 계산용)
+            qty = int(group_qtys[gidx]) if gidx < len(group_qtys) and group_qtys[gidx] else 1
             c.execute("""INSERT INTO products
                 (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
                  customs_total, shipping_total, yongdal_total, import_quantity,
@@ -270,9 +294,20 @@ def product_new():
                 (name.strip(), opt, pg, price, cny, rate,
                  customs, shipping, yongdal, qty, nfr, dom_ship))
             pid = c.lastrowid
+            if gidx not in groups:
+                groups[gidx] = []
+            groups[gidx].append(pid)
+
+        # 묶음별 stock_group_id 설정 + stock_in (마스터 1개만)
+        count = 0
+        for gidx, pids in groups.items():
+            qty = int(group_qtys[gidx]) if gidx < len(group_qtys) and group_qtys[gidx] else 1
+            master = pids[0]
+            for pid in pids:
+                c.execute("UPDATE products SET stock_group_id=? WHERE id=?", (master, pid))
             c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
-                (pid, qty, rate, today, '상품 등록 초기 입고'))
-            count += 1
+                (master, qty, rate, today, '상품 등록 초기 입고'))
+            count += len(pids)
         conn.commit()
         conn.close()
         flash(f'{count}개 상품이 등록되었습니다.')
