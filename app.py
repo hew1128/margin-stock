@@ -185,7 +185,8 @@ def get_all_products_with_keywords():
 @app.route('/')
 def dashboard():
     products = get_all_products_with_keywords()
-    items = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id'])} for p in products]
+    items = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id']),
+              'sgid': p['stock_group_id'] or p['id']} for p in products]
 
     # product_group(또는 name) → (name, opt) 키 3단계 그룹핑
     group_map  = {}
@@ -211,11 +212,16 @@ def dashboard():
     for gkey in group_order:
         od = group_map[gkey]
         key_order = sorted(od.keys(), key=lambda k: max(i['p']['id'] for i in od[k]), reverse=True)
-        opt_rows, total_g = [], 0
+        opt_rows = []
+        seen_sgids = set()
+        total_g = 0
         for tkey in key_order:
-            its   = od[tkey]
+            its = od[tkey]
             opt_s = sum(i['s'] for i in its)
-            total_g += opt_s
+            for i in its:
+                if i['sgid'] not in seen_sgids:
+                    seen_sgids.add(i['sgid'])
+                    total_g += i['s']
             opt_rows.append({'opt': tkey[1], 'listing': tkey[0], 'latest': its[0], 'total_s': opt_s})
         grouped.append((gkey, opt_rows, total_g))
     return render_template('dashboard.html', grouped=grouped)
@@ -226,7 +232,8 @@ def dashboard():
 @app.route('/products')
 def products():
     prods = get_all_products_with_keywords()
-    data = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id'])} for p in prods]
+    data = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id']),
+             'sgid': p['stock_group_id'] or p['id']} for p in prods]
     # product_group(또는 name) → (name, opt) 키 3단계 그룹핑
     group_map  = {}
     group_max_id = {}
@@ -252,7 +259,15 @@ def products():
         od = group_map[gkey]
         key_order = sorted(od.keys(), key=lambda k: max(i['p']['id'] for i in od[k]), reverse=True)
         opt_list = [{'opt': k[1], 'listing': k[0], 'batches': od[k]} for k in key_order]
-        grouped.append((gkey, opt_list))
+        # 공유 재고 그룹 중복 제거: 같은 stock_group_id는 한 번만 합산
+        seen_sgids = set()
+        group_stock = 0
+        for row in opt_list:
+            for item in row['batches']:
+                if item['sgid'] not in seen_sgids:
+                    seen_sgids.add(item['sgid'])
+                    group_stock += item['s']
+        grouped.append((gkey, opt_list, group_stock))
     return render_template('products.html', grouped=grouped)
 
 

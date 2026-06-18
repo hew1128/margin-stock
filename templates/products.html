@@ -13,14 +13,8 @@
 </div>
 
 {% if grouped %}
-{% for name, opt_list in grouped %}
+{% for name, opt_list, group_stock in grouped %}
 {% set gi = loop.index %}
-
-{# ── 그룹 전체 재고 합산 ── #}
-{% set ns = namespace(total=0) %}
-{% for optrow in opt_list %}
-  {% for item in optrow.batches %}{% set ns.total = ns.total + item.s %}{% endfor %}
-{% endfor %}
 
 <div style="margin-bottom:12px">
 
@@ -38,8 +32,8 @@
     <div style="display:flex;align-items:center;gap:8px">
       <a href="{{ url_for('product_new', group=name) }}"
          class="btn btn-secondary btn-sm" style="font-size:12px;padding:4px 10px">+ 배치 추가</a>
-      <span class="badge {{ 'bg-green' if ns.total > 10 else ('bg-yellow' if ns.total > 0 else 'bg-red') }}"
-            style="font-size:13px;padding:5px 12px">총재고 {{ ns.total }}개</span>
+      <span class="badge {{ 'bg-green' if group_stock > 10 else ('bg-yellow' if group_stock > 0 else 'bg-red') }}"
+            style="font-size:13px;padding:5px 12px">총재고 {{ group_stock }}개</span>
     </div>
   </div>
 
@@ -49,8 +43,13 @@
 
   {% for optrow in opt_list %}
   {% set oi = loop.index %}
-  {% set os = namespace(total=0) %}
-  {% for item in optrow.batches %}{% set os.total = os.total + item.s %}{% endfor %}
+  {% set os = namespace(total=0, seen=[]) %}
+  {% for item in optrow.batches %}
+    {% if item.sgid not in os.seen %}
+      {% set os.total = os.total + item.s %}
+      {% set os.seen = os.seen + [item.sgid] %}
+    {% endif %}
+  {% endfor %}
 
     {# 옵션 헤더 #}
     <div onclick="tog('opt{{gi}}_{{oi}}','oarr{{gi}}_{{oi}}')"
