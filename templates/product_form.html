@@ -1,7 +1,10 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="ph">
-  <div><h1>{{ '상품 수정' if product else '상품 등록' }}</h1></div>
+  <div>
+    <h1>{{ '상품 수정' if product else ('배치 추가' if is_add_batch else '상품 등록') }}</h1>
+    {% if is_add_batch %}<p style="color:#6b7280">{{ group_name }} — 새 사입 배치를 등록합니다</p>{% endif %}
+  </div>
   <a href="/products" class="btn btn-secondary">← 목록으로</a>
 </div>
 
@@ -154,48 +157,53 @@ window.addEventListener('DOMContentLoaded',calc);
 </script>
 
 {% else %}
-{# ===== 신규 등록: 공통 설정 + 다중 행 ===== #}
-<form method="POST" id="pform">
+{# ===== 신규 등록 / 배치 추가: 공통 설정 + 다중 행 ===== #}
+<form method="POST" action="/products/new" id="pform">
 
   <div class="card" style="margin-bottom:16px">
     <div class="form-group">
       <label>실제 제품명 (그룹)</label>
+      {% if is_add_batch %}
+      <input type="text" name="product_group" class="form-control"
+             value="{{ group_name }}" readonly style="background:#f3f4f6;color:#374151;font-weight:600">
+      {% else %}
       <input type="text" name="product_group" class="form-control"
              placeholder="예: 호스꼬임방지기">
+      {% endif %}
       <p class="hint">여러 스토어 상품명을 묶는 대표 이름 — 목록/분석에서 이 이름으로 표시</p>
     </div>
   </div>
 
   <div class="card" style="margin-bottom:16px">
     <div class="card-title" style="margin-bottom:16px">공통 원가 설정</div>
-    <div class="form-group">
-      <label>구입 당시 환율 (위안→원) *</label>
-      <input type="number" step="0.01" name="exchange_rate" class="form-control"
-             style="max-width:200px" value="190" required>
-    </div>
     <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:10px">통관 비용 — 묶음 기준 총액</div>
     <div class="row3">
       <div class="form-group">
         <label>관세 합계 (원)</label>
-        <input type="number" name="customs_total" class="form-control" value="0">
+        <input type="number" name="customs_total" class="form-control"
+               value="{{ common.customs_total if common else 0 }}">
       </div>
       <div class="form-group">
         <label>운송비 합계 (원)</label>
-        <input type="number" name="shipping_total" class="form-control" value="0">
+        <input type="number" name="shipping_total" class="form-control"
+               value="{{ common.shipping_total if common else 0 }}">
       </div>
       <div class="form-group">
         <label>용달 합계 (원)</label>
-        <input type="number" name="yongdal_total" class="form-control" value="0">
+        <input type="number" name="yongdal_total" class="form-control"
+               value="{{ common.yongdal_total if common else 0 }}">
       </div>
     </div>
     <div class="row2">
       <div class="form-group">
         <label>네이버 수수료율 (%)</label>
-        <input type="number" step="0.01" name="naver_fee_rate" class="form-control" value="2.0">
+        <input type="number" step="0.01" name="naver_fee_rate" class="form-control"
+               value="{{ common.naver_fee_rate if common else 2.0 }}">
       </div>
       <div class="form-group">
         <label>국내 택배비 (원)</label>
-        <input type="number" name="domestic_shipping" class="form-control" value="2500">
+        <input type="number" name="domestic_shipping" class="form-control"
+               value="{{ common.domestic_shipping if common else 2500 }}">
       </div>
     </div>
   </div>
@@ -219,8 +227,9 @@ window.addEventListener('DOMContentLoaded',calc);
 
 <script>
 var groupCount = 0;
+var TODAY = new Date().toISOString().slice(0,10);
 
-function addGroup() {
+function addGroup(prefilledListings) {
   var gidx = groupCount++;
   var container = document.getElementById('groups-container');
   var div = document.createElement('div');
@@ -231,34 +240,42 @@ function addGroup() {
     +'<span style="font-size:13px;font-weight:700;color:#374151">묶음 '+(gidx+1)+'</span>'
     +'<button type="button" onclick="removeGroup(this)" class="btn btn-danger btn-sm">묶음 삭제</button>'
     +'</div>'
-    +'<div style="display:grid;grid-template-columns:90px 120px 120px 1fr;gap:10px;align-items:end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #f3f4f6">'
+    +'<div style="display:grid;grid-template-columns:130px 90px 130px 120px 1fr;gap:10px;align-items:end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #f3f4f6">'
+    +'<div><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">사입 날짜 *</label>'
+    +'<input type="date" name="group_dates[]" class="form-control" required value="'+TODAY+'"></div>'
     +'<div><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">입고 개수 *</label>'
     +'<input type="number" name="group_qtys[]" class="form-control" value="1" min="1" required></div>'
     +'<div><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">사입가 (위안) *</label>'
     +'<input type="number" step="0.01" name="group_cnys[]" class="form-control" required placeholder="12.36"></div>'
     +'<div><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">구입 환율 (위안→원) *</label>'
     +'<input type="number" step="0.01" name="group_rates[]" class="form-control" required placeholder="227"></div>'
-    +'<div style="font-size:11px;color:#9ca3af;padding-bottom:6px">← 이 배치의 원가 (구매 시점마다 다름)</div>'
+    +'<div style="font-size:11px;color:#9ca3af;padding-bottom:6px">← 이 배치의 원가</div>'
     +'</div>'
     +'<div style="display:grid;grid-template-columns:2.5fr 1fr 1fr 36px;gap:8px;font-size:11px;color:#9ca3af;font-weight:600;padding-bottom:6px;border-bottom:1px solid #f3f4f6">'
     +'<span>스토어 상품명 *</span><span>옵션명</span><span>판매가(원) *</span><span></span>'
     +'</div>'
     +'<div class="group-rows" data-gidx="'+gidx+'"></div>'
-    +'<button type="button" onclick="addRowToGroup('+gidx+')" class="btn btn-secondary btn-sm" style="margin-top:8px">+ 행 추가</button>';
+    +'<button type="button" onclick="addRowToGroup('+gidx+',null)" class="btn btn-secondary btn-sm" style="margin-top:8px">+ 행 추가</button>';
   container.appendChild(div);
-  addRowToGroup(gidx);
+  if (prefilledListings && prefilledListings.length > 0) {
+    prefilledListings.forEach(function(l) { addRowToGroup(gidx, l); });
+  } else {
+    addRowToGroup(gidx, null);
+  }
 }
 
-function addRowToGroup(gidx) {
+function addRowToGroup(gidx, prefill) {
   var rowsDiv = document.querySelector('.group-rows[data-gidx="'+gidx+'"]');
   if (!rowsDiv) return;
   var div = document.createElement('div');
-  div.style.cssText = 'display:grid;grid-template-columns:2.5fr 1fr 1fr 1fr 36px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #f9fafb';
   div.style.cssText = 'display:grid;grid-template-columns:2.5fr 1fr 1fr 36px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #f9fafb';
+  var nameVal  = prefill ? prefill.name.replace(/"/g,'&quot;') : '';
+  var optVal   = prefill ? (prefill.option||'').replace(/"/g,'&quot;') : '';
+  var priceVal = prefill ? prefill.sale_price : '';
   div.innerHTML =
-    '<input type="text" name="names[]" class="form-control" required placeholder="스토어 상품명...">'
-    +'<input type="text" name="option_names[]" class="form-control" placeholder="기본 연결형">'
-    +'<input type="number" name="sale_prices[]" class="form-control" required placeholder="12900">'
+    '<input type="text" name="names[]" class="form-control" required value="'+nameVal+'" placeholder="스토어 상품명...">'
+    +'<input type="text" name="option_names[]" class="form-control" value="'+optVal+'" placeholder="기본 연결형">'
+    +'<input type="number" name="sale_prices[]" class="form-control" required value="'+priceVal+'" placeholder="12900">'
     +'<input type="hidden" name="group_indices[]" value="'+gidx+'">'
     +'<button type="button" onclick="removeRow(this)" style="width:32px;height:32px;border:1px solid #fca5a5;background:#fff;border-radius:6px;cursor:pointer;color:#ef4444;font-size:18px;line-height:1;padding:0">×</button>';
   rowsDiv.appendChild(div);
@@ -276,7 +293,14 @@ function removeGroup(btn) {
   btn.closest('.stock-group').remove();
 }
 
-window.addEventListener('DOMContentLoaded', function(){ addGroup(); });
+window.addEventListener('DOMContentLoaded', function(){
+  {% if is_add_batch %}
+  var PREFILL = {{ batch_groups | tojson }};
+  PREFILL.forEach(function(listings) { addGroup(listings); });
+  {% else %}
+  addGroup(null);
+  {% endif %}
+});
 </script>
 {% endif %}
 {% endblock %}

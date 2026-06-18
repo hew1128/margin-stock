@@ -56,6 +56,10 @@ def init_db():
         c.execute("ALTER TABLE products ADD COLUMN stock_group_id INTEGER")
     except Exception:
         pass
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN purchase_date TEXT")
+    except Exception:
+        pass
     c.execute('''CREATE TABLE IF NOT EXISTS product_keywords (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         product_id INTEGER NOT NULL,
@@ -265,10 +269,11 @@ def product_new():
         nfr       = float(request.form.get('naver_fee_rate') or 2.0)
         dom_ship  = int(request.form.get('domestic_shipping') or 2500)
         today     = datetime.now().strftime('%Y-%m-%d')
-        # 묶음별 데이터 (입고 개수, 사입가, 환율은 묶음 레벨)
+        # 묶음별 데이터 (입고 개수, 사입가, 환율, 사입날짜는 묶음 레벨)
         group_qtys  = request.form.getlist('group_qtys[]')
         group_cnys  = request.form.getlist('group_cnys[]')
         group_rates = request.form.getlist('group_rates[]')
+        group_dates = request.form.getlist('group_dates[]')
         # 행 단위 데이터
         names   = request.form.getlist('names[]')
         opts    = request.form.getlist('option_names[]')
@@ -286,13 +291,14 @@ def product_new():
             qty   = int(group_qtys[gidx])  if gidx < len(group_qtys)  and group_qtys[gidx]  else 1
             cny   = float(group_cnys[gidx]) if gidx < len(group_cnys) and group_cnys[gidx] else 0
             rate  = float(group_rates[gidx]) if gidx < len(group_rates) and group_rates[gidx] else 190
+            pdate = group_dates[gidx] if gidx < len(group_dates) and group_dates[gidx] else today
             c.execute("""INSERT INTO products
                 (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
                  customs_total, shipping_total, yongdal_total, import_quantity,
-                 naver_fee_rate, domestic_shipping)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 naver_fee_rate, domestic_shipping, purchase_date)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (name.strip(), opt, pg, price, cny, rate,
-                 customs, shipping, yongdal, qty, nfr, dom_ship))
+                 customs, shipping, yongdal, qty, nfr, dom_ship, pdate))
             pid = c.lastrowid
             if gidx not in groups:
                 groups[gidx] = []
@@ -301,19 +307,56 @@ def product_new():
         # 묶음별 stock_group_id 설정 + stock_in (마스터 1개만)
         count = 0
         for gidx, pids in groups.items():
-            qty  = int(group_qtys[gidx])   if gidx < len(group_qtys)  and group_qtys[gidx]  else 1
-            rate = float(group_rates[gidx]) if gidx < len(group_rates) and group_rates[gidx] else 190
+            qty   = int(group_qtys[gidx])   if gidx < len(group_qtys)  and group_qtys[gidx]  else 1
+            rate  = float(group_rates[gidx]) if gidx < len(group_rates) and group_rates[gidx] else 190
+            pdate = group_dates[gidx] if gidx < len(group_dates) and group_dates[gidx] else today
             master = pids[0]
             for pid in pids:
                 c.execute("UPDATE products SET stock_group_id=? WHERE id=?", (master, pid))
             c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
-                (master, qty, rate, today, '상품 등록 초기 입고'))
+                (master, qty, rate, pdate, '상품 등록 초기 입고'))
             count += len(pids)
         conn.commit()
         conn.close()
         flash(f'{count}개 상품이 등록되었습니다.')
         return redirect(url_for('products'))
-    return render_template('product_form.html', product=None, keywords='')
+    # 배치 추가 모드: ?group=NAME 으로 진입 시 기존 묶음 구조 pre-fill
+    group_name   = request.args.get('group', '')
+    batch_groups = []
+    common       = None
+    is_add_batch = False
+
+    if group_name:
+        conn = get_db()
+        all_ps = conn.execute(
+            "SELECT * FROM products WHERE product_group=? AND is_active=1 ORDER BY id",
+            (group_name,)
+        ).fetchall()
+        conn.close()
+        if all_ps:
+            sg_map = {}
+            for p in all_ps:
+                sgid = p['stock_group_id'] or p['id']
+                if sgid not in sg_map:
+                    sg_map[sgid] = []
+                sg_map[sgid].append(p)
+            # 고유 option tier별 최신 배치만
+            fp_latest = {}
+            for sgid in sorted(sg_map.keys()):
+                prods = sg_map[sgid]
+                fp = frozenset((p['name'], p['option_name'] or '') for p in prods)
+                fp_latest[fp] = (sgid, prods)
+            for _fp, (sgid, prods) in sorted(fp_latest.items(), key=lambda x: x[1][0]):
+                listings = [{'name': p['name'], 'option': p['option_name'] or '', 'sale_price': p['sale_price']}
+                            for p in sorted(prods, key=lambda x: x['id'])]
+                batch_groups.append(listings)
+            latest_p = max(all_ps, key=lambda x: x['id'])
+            common = {k: latest_p[k] for k in ('customs_total','shipping_total','yongdal_total','naver_fee_rate','domestic_shipping')}
+            is_add_batch = True
+
+    return render_template('product_form.html', product=None, keywords='',
+                           is_add_batch=is_add_batch, group_name=group_name,
+                           batch_groups=batch_groups, common=common)
 
 
 @app.route('/products/<int:pid>/edit', methods=['GET', 'POST'])

@@ -25,18 +25,22 @@
 <div style="margin-bottom:12px">
 
   {# ── Level 1: 상품명 헤더 ── #}
-  <div onclick="tog('n{{gi}}','na{{gi}}')"
-       style="display:flex;align-items:center;justify-content:space-between;
+  <div style="display:flex;align-items:center;justify-content:space-between;
               padding:14px 20px;background:#fff;border:1px solid #e5e7eb;
-              border-radius:10px;cursor:pointer;user-select:none"
-       onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='#fff'">
-    <div style="display:flex;align-items:center;gap:10px">
+              border-radius:10px;user-select:none">
+    <div onclick="tog('n{{gi}}','na{{gi}}')"
+         style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer"
+         onmouseover="this.parentElement.style.background='#f9fafb'" onmouseout="this.parentElement.style.background='#fff'">
       <span id="na{{gi}}" style="font-size:11px;color:#bbb;transition:transform .2s">▶</span>
       <span style="font-size:16px;font-weight:700">{{ name }}</span>
       <span class="badge bg-gray" style="font-size:11px">{{ opt_list|length }}옵션</span>
     </div>
-    <span class="badge {{ 'bg-green' if ns.total > 10 else ('bg-yellow' if ns.total > 0 else 'bg-red') }}"
-          style="font-size:13px;padding:5px 12px">총재고 {{ ns.total }}개</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <a href="{{ url_for('product_new', group=name) }}"
+         class="btn btn-secondary btn-sm" style="font-size:12px;padding:4px 10px">+ 배치 추가</a>
+      <span class="badge {{ 'bg-green' if ns.total > 10 else ('bg-yellow' if ns.total > 0 else 'bg-red') }}"
+            style="font-size:13px;padding:5px 12px">총재고 {{ ns.total }}개</span>
+    </div>
   </div>
 
   {# ── Level 2: 옵션 목록 ── #}
@@ -85,8 +89,8 @@
 
         <span id="da{{item.p.id}}" style="font-size:11px;color:#bbb;flex-shrink:0;transition:transform .2s">▶</span>
 
-        <span style="font-size:12px;color:#9ca3af;flex-shrink:0;min-width:80px">
-          {{ (item.p.created_at or '')[:10] }}
+        <span style="font-size:12px;color:#9ca3af;flex-shrink:0;min-width:100px">
+          사입 {{ (item.p.purchase_date or (item.p.created_at or '')[:10]) }}
         </span>
 
         <span class="badge {{ 'bg-green' if item.s > 10 else ('bg-yellow' if item.s > 0 else 'bg-red') }}"
