@@ -230,12 +230,14 @@ def update_group_order():
     return jsonify({'ok': True})
 
 
-def calculate_margin(product, exchange_rate=None, freebie_cost=0):
+def calculate_margin(product, exchange_rate=None, freebie_cost=0, purchase_krw_override=None):
     keys = product.keys() if hasattr(product, 'keys') else product
     method = (product['payment_method'] if 'payment_method' in keys else None) or '위안화'
     krw_price = (product['purchase_price_krw'] if 'purchase_price_krw' in keys else 0) or 0
     sale = product['sale_price']
-    if method in ('원화', '카드') and krw_price > 0:
+    if purchase_krw_override is not None:
+        purchase_krw = purchase_krw_override
+    elif method in ('원화', '카드') and krw_price > 0:
         purchase_krw = krw_price
     else:
         rate = float(exchange_rate or product['exchange_rate'] or 190)
@@ -265,6 +267,55 @@ def calculate_margin(product, exchange_rate=None, freebie_cost=0):
         'general_margin':       round(general_margin, 1),
         'general_margin_rate':  round(general_margin / sale * 100, 1) if sale else 0,
     }
+
+
+def compute_fifo_costs(conn, pid_list):
+    """상품 목록의 FIFO 원가(원)를 한 번에 계산. {pid: cost or None}"""
+    if not pid_list:
+        return {}
+    ph = ','.join('?' * len(pid_list))
+    batches_all = conn.execute(
+        f"SELECT product_id, quantity, "
+        f"COALESCE(purchase_price_cny,0) as cny, "
+        f"COALESCE(purchase_price_krw,0) as krw, "
+        f"COALESCE(payment_method,'위안화') as method, "
+        f"COALESCE(exchange_rate,190) as rate "
+        f"FROM stock_in WHERE product_id IN ({ph}) ORDER BY product_id, date ASC, id ASC",
+        pid_list
+    ).fetchall()
+    out_rows = conn.execute(
+        f"SELECT product_id, COALESCE(SUM(quantity),0) as total "
+        f"FROM stock_out WHERE product_id IN ({ph}) GROUP BY product_id",
+        pid_list
+    ).fetchall()
+    out_map = {r['product_id']: r['total'] for r in out_rows}
+    batches_map = {}
+    for b in batches_all:
+        batches_map.setdefault(b['product_id'], []).append(b)
+    result = {}
+    for pid in pid_list:
+        pb = batches_map.get(pid, [])
+        remaining = out_map.get(pid, 0)
+        fifo_cost = None
+        for b in pb:
+            if b['method'] in ('원화', '카드') and b['krw'] > 0:
+                cost = float(b['krw'])
+            elif b['cny'] > 0:
+                cost = float(b['cny']) * float(b['rate'])
+            else:
+                # 가격 정보 없는 배치 — 소진만 하고 넘어감
+                remaining = max(0, remaining - b['quantity'])
+                continue
+            if remaining <= 0:
+                fifo_cost = cost
+                break
+            if remaining >= b['quantity']:
+                remaining -= b['quantity']
+            else:
+                fifo_cost = cost
+                break
+        result[pid] = fifo_cost
+    return result
 
 
 def load_freebie_data():
@@ -436,6 +487,8 @@ def products():
     rules_count_by_group = {r['product_group']: r['cnt'] for r in conn_r.execute(
         "SELECT product_group, COUNT(*) as cnt FROM freebie_rules WHERE is_active=1 GROUP BY product_group"
     ).fetchall()}
+    pid_list = [p['id'] for p in prods]
+    fifo_costs = compute_fifo_costs(conn_r, pid_list)
     conn_r.close()
     data = []
     for p in prods:
@@ -450,8 +503,11 @@ def products():
             best = max((ai.get('sell_price', 0) - ai.get('buy_price', 0) for ai in ag.get('items', [])), default=0)
             if best > 0:
                 max_addon_m += best
-        data.append({'p': p, 'm': calculate_margin(p, freebie_cost=fc), 's': get_current_stock(p['id']),
-                     'sgid': p['stock_group_id'] or p['id'], 'combo': combo, 'max_addon_m': max_addon_m})
+        fifo_c = fifo_costs.get(p['id'])
+        margin = calculate_margin(p, freebie_cost=fc, purchase_krw_override=fifo_c)
+        data.append({'p': p, 'm': margin, 's': get_current_stock(p['id']),
+                     'sgid': p['stock_group_id'] or p['id'], 'combo': combo, 'max_addon_m': max_addon_m,
+                     'fifo_cost': fifo_c})
     # product_group(또는 name) → (name, opt) 키 3단계 그룹핑
     group_map  = {}
     group_max_id = {}
@@ -971,19 +1027,35 @@ def product_delete(pid):
 
 @app.route('/stock/add/<int:pid>', methods=['POST'])
 def stock_add(pid):
-    qty  = int(request.form.get('quantity') or 0)
-    memo = request.form.get('memo', '').strip() or '수동 재고 추가'
-    date = request.form.get('date') or datetime.now().strftime('%Y-%m-%d')
+    qty    = int(request.form.get('quantity') or 0)
+    date   = request.form.get('date') or datetime.now().strftime('%Y-%m-%d')
+    method = request.form.get('payment_method', '위안화')
+    cny    = float(request.form.get('purchase_price_cny') or 0)
+    krw    = int(request.form.get('purchase_price_krw') or 0)
+    rate   = float(request.form.get('exchange_rate') or 190)
+    card_co = request.form.get('card_company', '').strip()
+    card_no = request.form.get('card_last4', '').strip()
+    card_info = f"{card_co} {card_no}".strip() if (card_co or card_no) else ''
     if qty <= 0:
         flash('수량을 1개 이상 입력해주세요.')
         return redirect(url_for('products'))
     conn = get_db()
-    rate = conn.execute("SELECT exchange_rate FROM products WHERE id=?", (pid,)).fetchone()['exchange_rate']
-    conn.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
-                 (pid, qty, rate, date, memo))
+    conn.execute(
+        "INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo, "
+        "purchase_price_cny, purchase_price_krw, payment_method, card_info) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (pid, qty, rate, date, '재사입', cny, krw, method, card_info)
+    )
+    # 상품 테이블 최신 사입가도 업데이트
+    if method in ('원화', '카드') and krw > 0:
+        conn.execute("UPDATE products SET purchase_price_krw=?, payment_method=?, payment_card_info=? WHERE id=?",
+                     (krw, method, card_info, pid))
+    elif cny > 0:
+        conn.execute("UPDATE products SET purchase_price_cny=?, exchange_rate=?, payment_method=? WHERE id=?",
+                     (cny, rate, method, pid))
     conn.commit()
     conn.close()
-    flash(f'{qty}개 재고가 추가되었습니다. ({memo})')
+    flash(f'재사입 완료: {qty}개 추가')
     return redirect(url_for('products'))
 
 

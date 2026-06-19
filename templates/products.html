@@ -213,6 +213,9 @@ async function moveGroup(name, dir) {
           {% endif %}
           <div style="font-size:10px;color:{{ '#10b981' if item.m.simple_margin_rate >= 0 else '#ef4444' }}">
             간이 {{ '{:.1f}'.format(item.m.simple_margin_rate) }}%</div>
+          {% if item.fifo_cost is defined and item.fifo_cost is not none %}
+          <div style="font-size:9px;color:#9ca3af;margin-top:1px">FIFO 기준</div>
+          {% endif %}
         </div>
 
         <div style="background:#eff6ff;padding:4px 10px;border-radius:6px;text-align:right;min-width:{% if item.max_addon_m > 0 %}140{% else %}90{% endif %}px;flex-shrink:0">
@@ -228,8 +231,8 @@ async function moveGroup(name, dir) {
         </div>
 
         <div style="display:flex;gap:5px;flex-shrink:0" onclick="event.stopPropagation()">
-          <button onclick="openStockAdd({{ item.p.id }}, '{{ item.p.name }} {{ item.p.option_name }}')"
-                  class="btn btn-success btn-sm">+재고</button>
+          <button onclick="openStockAdd({{ item.p.id }}, '{{ item.p.option_name or item.p.name }}')"
+                  class="btn btn-success btn-sm">재사입</button>
           <a href="/products/{{ item.p.id }}/edit" class="btn btn-secondary btn-sm">수정</a>
           <form method="POST" action="/products/{{ item.p.id }}/delete" style="display:inline"
                 onsubmit="return confirm('삭제하시겠습니까?')">
@@ -350,31 +353,67 @@ async function moveGroup(name, dir) {
 </div>
 {% endif %}
 
-<!-- 재고 추가 모달 -->
+<!-- 재사입 모달 -->
 <div id="stockModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:999;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:14px;padding:28px;width:360px;box-shadow:0 8px 32px rgba(0,0,0,.2)">
-    <div style="font-size:16px;font-weight:700;margin-bottom:6px">재고 추가</div>
-    <div id="modalProductName" style="font-size:13px;color:#6b7280;margin-bottom:20px"></div>
+  <div style="background:#fff;border-radius:14px;padding:28px;width:420px;box-shadow:0 8px 32px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto">
+    <div style="font-size:16px;font-weight:700;margin-bottom:4px">재사입</div>
+    <div id="modalProductName" style="font-size:13px;color:#4f46e5;font-weight:600;margin-bottom:18px"></div>
     <form id="stockAddForm" method="POST">
-      <div class="form-group">
-        <label>날짜</label>
-        <input type="date" name="date" id="modalDate" class="form-control">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="form-group" style="margin:0">
+          <label>사입일</label>
+          <input type="date" name="date" id="modalDate" class="form-control">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>수량 (개)</label>
+          <input type="number" name="quantity" class="form-control" min="1" placeholder="0" required>
+        </div>
       </div>
+
       <div class="form-group">
-        <label>수량 (개)</label>
-        <input type="number" name="quantity" class="form-control" min="1" placeholder="0" required>
+        <label>결제방식</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          {% for m,c in [('위안화','#3b82f6'),('원화','#10b981'),('카드','#f59e0b')] %}
+          <label style="cursor:pointer">
+            <input type="radio" name="payment_method" value="{{ m }}"
+                   {% if m=='위안화' %}checked{% endif %}
+                   style="display:none" onchange="modalTogglePay('{{ m }}')">
+            <span id="mpay_{{ m }}" style="display:inline-block;padding:6px 14px;border:2px solid {{ c }};border-radius:7px;font-size:13px;font-weight:600;
+                  background:{{ c }};color:#fff;transition:all .15s">{{ m }}</span>
+          </label>
+          {% endfor %}
+        </div>
       </div>
-      <div class="form-group">
-        <label>메모</label>
-        <select name="memo" class="form-control">
-          <option value="반품 재입고">반품 재입고</option>
-          <option value="추가 입고">추가 입고</option>
-          <option value="수량 보정">수량 보정</option>
-          <option value="기타">기타</option>
-        </select>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="form-group" style="margin:0">
+          <label id="mBuyLabel">사입가 (위안)</label>
+          <input type="number" name="purchase_price_cny" id="mCnyInput" class="form-control" step="0.01" placeholder="0">
+          <input type="number" name="purchase_price_krw" id="mKrwInput" class="form-control" step="1" placeholder="0" style="display:none">
+        </div>
+        <div class="form-group" style="margin:0" id="mRateWrap">
+          <label>환율 (위안→원)</label>
+          <input type="number" name="exchange_rate" id="mRateInput" class="form-control" step="0.01" value="190">
+        </div>
       </div>
+
+      <div id="mCardWrap" style="display:none;margin-bottom:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group" style="margin:0">
+            <label>카드사</label>
+            <input type="text" name="card_company" class="form-control" placeholder="신한, 삼성...">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>카드번호 뒤 4자리</label>
+            <input type="text" name="card_last4" class="form-control" maxlength="4" placeholder="1234"
+                   oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+          </div>
+        </div>
+      </div>
+
       <div class="flex mt">
-        <button type="submit" class="btn btn-success">추가</button>
+        <button type="submit" class="btn btn-success">재사입 완료</button>
         <button type="button" onclick="closeModal()" class="btn btn-secondary">취소</button>
       </div>
     </form>
@@ -390,12 +429,36 @@ function tog(cid, aid) {
   var arr = document.getElementById(aid);
   if (arr) arr.style.transform = open ? 'rotate(90deg)' : '';
 }
+var PAY_COLORS = {'위안화':'#3b82f6','원화':'#10b981','카드':'#f59e0b'};
+function modalTogglePay(method) {
+  Object.keys(PAY_COLORS).forEach(function(m) {
+    var el = document.getElementById('mpay_' + m);
+    if (!el) return;
+    if (m === method) {
+      el.style.background = PAY_COLORS[m];
+      el.style.color = '#fff';
+      el.style.borderColor = PAY_COLORS[m];
+    } else {
+      el.style.background = '#fff';
+      el.style.color = '#374151';
+      el.style.borderColor = '#e5e7eb';
+    }
+  });
+  var isCny  = method === '위안화';
+  var isCard = method === '카드';
+  document.getElementById('mBuyLabel').textContent = isCny ? '사입가 (위안)' : '사입가 (원)';
+  document.getElementById('mCnyInput').style.display = isCny ? '' : 'none';
+  document.getElementById('mKrwInput').style.display = isCny ? 'none' : '';
+  document.getElementById('mRateWrap').style.opacity = isCny ? '1' : '0.35';
+  document.getElementById('mCardWrap').style.display = isCard ? '' : 'none';
+}
 function openStockAdd(pid, name) {
   document.getElementById('stockAddForm').action = '/stock/add/' + pid;
   document.getElementById('modalProductName').textContent = name;
   document.getElementById('modalDate').value = new Date().toISOString().slice(0,10);
-  var m = document.getElementById('stockModal');
-  m.style.display = 'flex';
+  modalTogglePay('위안화');
+  document.querySelector('#stockAddForm input[name=payment_method][value=위안화]').checked = true;
+  document.getElementById('stockModal').style.display = 'flex';
 }
 function closeModal() {
   document.getElementById('stockModal').style.display = 'none';
