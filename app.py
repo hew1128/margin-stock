@@ -60,6 +60,18 @@ def init_db():
         c.execute("ALTER TABLE products ADD COLUMN purchase_date TEXT")
     except Exception:
         pass
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN payment_method TEXT DEFAULT '위안화'")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN payment_card_info TEXT")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN purchase_price_krw INTEGER DEFAULT 0")
+    except Exception:
+        pass
     c.execute('''CREATE TABLE IF NOT EXISTS product_keywords (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         product_id INTEGER NOT NULL,
@@ -121,9 +133,13 @@ def get_setting(key, default=None):
 
 
 def calculate_margin(product, exchange_rate=None):
-    rate = float(exchange_rate or product['exchange_rate'] or 190)
+    method = product.get('payment_method', '위안화') or '위안화'
     sale = product['sale_price']
-    purchase_krw = product['purchase_price_cny'] * rate
+    if method in ('원화', '카드') and (product.get('purchase_price_krw') or 0) > 0:
+        purchase_krw = product['purchase_price_krw']
+    else:
+        rate = float(exchange_rate or product['exchange_rate'] or 190)
+        purchase_krw = product['purchase_price_cny'] * rate
     customs_total = product['customs_total'] + product['shipping_total'] + product['yongdal_total']
     qty = product['import_quantity'] or 1
     customs_per_unit = customs_total / qty
@@ -284,11 +300,14 @@ def product_new():
         nfr       = float(request.form.get('naver_fee_rate') or 2.0)
         dom_ship  = int(request.form.get('domestic_shipping') or 2500)
         today     = datetime.now().strftime('%Y-%m-%d')
-        # 묶음별 데이터 (입고 개수, 사입가, 환율, 사입날짜는 묶음 레벨)
-        group_qtys  = request.form.getlist('group_qtys[]')
-        group_cnys  = request.form.getlist('group_cnys[]')
-        group_rates = request.form.getlist('group_rates[]')
-        group_dates = request.form.getlist('group_dates[]')
+        # 묶음별 데이터 (입고 개수, 사입가, 환율, 사입날짜, 결제방식은 묶음 레벨)
+        group_qtys    = request.form.getlist('group_qtys[]')
+        group_cnys    = request.form.getlist('group_cnys[]')
+        group_rates   = request.form.getlist('group_rates[]')
+        group_dates   = request.form.getlist('group_dates[]')
+        group_methods = request.form.getlist('group_methods[]')
+        group_cards   = request.form.getlist('group_cards[]')
+        group_krws    = request.form.getlist('group_krws[]')
         # 행 단위 데이터
         names   = request.form.getlist('names[]')
         opts    = request.form.getlist('option_names[]')
@@ -303,17 +322,26 @@ def product_new():
             gidx  = int(gidxs[i]) if i < len(gidxs) and gidxs[i] != '' else 0
             opt   = opts[i].strip() if i < len(opts) else ''
             price = int(prices[i])  if i < len(prices) and prices[i] else 0
-            qty   = int(group_qtys[gidx])  if gidx < len(group_qtys)  and group_qtys[gidx]  else 1
-            cny   = float(group_cnys[gidx]) if gidx < len(group_cnys) and group_cnys[gidx] else 0
-            rate  = float(group_rates[gidx]) if gidx < len(group_rates) and group_rates[gidx] else 190
-            pdate = group_dates[gidx] if gidx < len(group_dates) and group_dates[gidx] else today
+            qty   = int(group_qtys[gidx])   if gidx < len(group_qtys)  and group_qtys[gidx]  else 1
+            pdate = group_dates[gidx]        if gidx < len(group_dates) and group_dates[gidx] else today
+            method    = group_methods[gidx]  if gidx < len(group_methods) and group_methods[gidx] else '위안화'
+            card_info = group_cards[gidx]    if gidx < len(group_cards)  and group_cards[gidx]  else ''
+            krw_price = int(group_krws[gidx]) if gidx < len(group_krws) and group_krws[gidx] else 0
+            if method in ('원화', '카드'):
+                cny  = 0.0
+                rate = 1.0
+            else:
+                cny  = float(group_cnys[gidx])  if gidx < len(group_cnys)  and group_cnys[gidx]  else 0
+                rate = float(group_rates[gidx]) if gidx < len(group_rates) and group_rates[gidx] else 190
             c.execute("""INSERT INTO products
                 (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
                  customs_total, shipping_total, yongdal_total, import_quantity,
-                 naver_fee_rate, domestic_shipping, purchase_date)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 naver_fee_rate, domestic_shipping, purchase_date,
+                 payment_method, payment_card_info, purchase_price_krw)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (name.strip(), opt, pg, price, cny, rate,
-                 customs, shipping, yongdal, qty, nfr, dom_ship, pdate))
+                 customs, shipping, yongdal, qty, nfr, dom_ship, pdate,
+                 method, card_info, krw_price))
             pid = c.lastrowid
             if gidx not in groups:
                 groups[gidx] = []

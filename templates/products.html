@@ -134,8 +134,41 @@
       <div id="d{{item.p.id}}" style="display:none;background:#fafbff;padding:20px 32px;border-bottom:1px solid #e0e7ff">
 
         <div style="font-size:11px;font-weight:700;color:#9ca3af;letter-spacing:.6px;margin-bottom:12px">원가 구성</div>
+
+        {# 결제방식 표시 #}
+        {% set pm = item.p.payment_method or '위안화' %}
+        <div style="margin-bottom:12px;padding:10px 14px;border-radius:8px;font-size:13px;
+          {% if pm == '카드' %}background:#fffbeb;border:1px solid #fcd34d{% elif pm == '원화' %}background:#eff6ff;border:1px solid #93c5fd{% else %}background:#f0fdf4;border:1px solid #6ee7b7{% endif %}">
+          <span style="font-weight:700">결제방식:</span>
+          {% if pm == '카드' %}
+            카드결제 — {{ item.p.payment_card_info or '-' }}
+            <span style="color:#6b7280;margin-left:8px">/ 개당 {{ '{:,}'.format(item.p.purchase_price_krw or 0) }}원</span>
+          {% elif pm == '원화' %}
+            원화결제
+            <span style="color:#6b7280;margin-left:8px">/ 개당 {{ '{:,}'.format(item.p.purchase_price_krw or 0) }}원</span>
+          {% else %}
+            위안화결제 — {{ item.p.purchase_price_cny }}위안 × {{ item.p.exchange_rate }}
+            = <strong>{{ '{:,.0f}'.format(item.p.purchase_price_cny * item.p.exchange_rate) }}원</strong>
+          {% endif %}
+        </div>
+
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
-          {% for label, val in [
+          {% if pm in ('원화', '카드') %}
+          {% set cost_vals = [
+            ('판매가',           '{:,}'.format(item.p.sale_price) + '원'),
+            ('개당 사입가',      '{:,}'.format(item.p.purchase_price_krw or 0) + '원'),
+            ('결제 방식',        pm + (' — ' + (item.p.payment_card_info or '') if pm == '카드' else '')),
+            ('총사입가',         '{:,.1f}'.format(item.m.purchase_krw) + '원'),
+            ('입고 개수',        '{:,}'.format(item.p.import_quantity) + '개'),
+            ('통관비 총합',      '{:,}'.format(item.m.customs_total) + '원'),
+            ('개당 통관비',      '{:,.1f}'.format(item.m.customs_per_unit) + '원'),
+            ('수수료율',         '{}%'.format(item.p.naver_fee_rate)),
+            ('수수료 금액',      '{:,.1f}'.format(item.m.naver_fee) + '원'),
+            ('국내 택배비',      '{:,}'.format(item.p.domestic_shipping) + '원'),
+            ('일반세금 (10%)',   '{:,.1f}'.format(item.m.tax_amount) + '원'),
+          ] %}
+          {% else %}
+          {% set cost_vals = [
             ('판매가',           '{:,}'.format(item.p.sale_price) + '원'),
             ('사입가',           '{}위안'.format(item.p.purchase_price_cny)),
             ('구입 환율',        '{}원'.format(item.p.exchange_rate)),
@@ -148,6 +181,8 @@
             ('국내 택배비',      '{:,}'.format(item.p.domestic_shipping) + '원'),
             ('일반세금 (10%)',   '{:,.1f}'.format(item.m.tax_amount) + '원'),
           ] %}
+          {% endif %}
+          {% for label, val in cost_vals %}
           <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:11px 14px">
             <div style="font-size:11px;color:#9ca3af;margin-bottom:5px">{{ label }}</div>
             <div style="font-size:14px;font-weight:600;color:#111">{{ val }}</div>

@@ -236,31 +236,83 @@ function addGroup(prefilledListings) {
   div.className = 'stock-group';
   div.style.cssText = 'border:1.5px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:12px';
   div.innerHTML =
+    // 헤더
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
     +'<span style="font-size:13px;font-weight:700;color:#374151">묶음 '+(gidx+1)+'</span>'
     +'<button type="button" onclick="removeGroup(this)" class="btn btn-danger btn-sm">묶음 삭제</button>'
     +'</div>'
-    +'<div style="display:grid;grid-template-columns:130px 90px 130px 120px 1fr;gap:10px;align-items:end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #f3f4f6">'
+
+    // 결제방식 radio
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 14px;background:#f9fafb;border-radius:8px">'
+    +'<span style="font-size:12px;color:#6b7280;font-weight:600;min-width:54px">결제 방식</span>'
+    +'<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;padding:5px 14px;border:1.5px solid #6ee7b7;border-radius:20px;background:#f0fdf4">'
+    +'<input type="radio" name="group_methods[]" value="위안화" checked onchange="togglePay(this)">위안화</label>'
+    +'<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;padding:5px 14px;border:1.5px solid #93c5fd;border-radius:20px;background:#eff6ff">'
+    +'<input type="radio" name="group_methods[]" value="원화" onchange="togglePay(this)">원화</label>'
+    +'<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;padding:5px 14px;border:1.5px solid #fcd34d;border-radius:20px;background:#fffbeb">'
+    +'<input type="radio" name="group_methods[]" value="카드" onchange="togglePay(this)">카드</label>'
+    +'</div>'
+
+    // 날짜 + 개수 + 원가 grid
+    +'<div style="display:grid;grid-template-columns:140px 100px 1fr;gap:10px;align-items:start;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #f3f4f6">'
     +'<div><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">사입 날짜 *</label>'
     +'<input type="date" name="group_dates[]" class="form-control" required value="'+TODAY+'"></div>'
     +'<div><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">입고 개수 *</label>'
     +'<input type="number" name="group_qtys[]" class="form-control" value="1" min="1" required></div>'
+
+    // 원가 영역 (토글)
+    +'<div>'
+    // 위안화 섹션 (기본 표시)
+    +'<div class="pf-cny" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
     +'<div><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">사입가 (위안) *</label>'
     +'<input type="number" step="0.01" name="group_cnys[]" class="form-control" required placeholder="12.36"></div>'
     +'<div><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">구입 환율 (위안→원) *</label>'
     +'<input type="number" step="0.01" name="group_rates[]" class="form-control" required placeholder="227"></div>'
-    +'<div style="font-size:11px;color:#9ca3af;padding-bottom:6px">← 이 배치의 원가</div>'
     +'</div>'
+    // 원화/카드 섹션 (기본 숨김)
+    +'<div class="pf-krw" style="display:none;grid-template-columns:1fr 1fr;gap:10px">'
+    +'<div><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">개당 사입가 (원화) *</label>'
+    +'<input type="number" name="group_krws[]" class="form-control" placeholder="2800"></div>'
+    +'<div class="pf-card" style="display:none"><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">카드사 + 뒷4자리</label>'
+    +'<input type="text" name="group_cards[]" class="form-control" placeholder="신한카드 1234"></div>'
+    +'</div>'
+    +'</div>'  // end 원가영역
+
+    +'</div>'  // end grid
+
+    // 상품 행 헤더
     +'<div style="display:grid;grid-template-columns:2.5fr 1fr 1fr 36px;gap:8px;font-size:11px;color:#9ca3af;font-weight:600;padding-bottom:6px;border-bottom:1px solid #f3f4f6">'
     +'<span>스토어 상품명 *</span><span>옵션명</span><span>판매가(원) *</span><span></span>'
     +'</div>'
     +'<div class="group-rows" data-gidx="'+gidx+'"></div>'
     +'<button type="button" onclick="addRowToGroup('+gidx+',null)" class="btn btn-secondary btn-sm" style="margin-top:8px">+ 행 추가</button>';
+
   container.appendChild(div);
   if (prefilledListings && prefilledListings.length > 0) {
     prefilledListings.forEach(function(l) { addRowToGroup(gidx, l); });
   } else {
     addRowToGroup(gidx, null);
+  }
+}
+
+function togglePay(radio) {
+  var grp    = radio.closest('.stock-group');
+  var method = radio.value;
+  var cnySec  = grp.querySelector('.pf-cny');
+  var krwSec  = grp.querySelector('.pf-krw');
+  var cardSec = grp.querySelector('.pf-card');
+  if (method === '위안화') {
+    cnySec.style.display = 'grid';
+    krwSec.style.display = 'none';
+    cardSec.style.display = 'none';
+    cnySec.querySelectorAll('input').forEach(function(el){ el.required = true; });
+    krwSec.querySelectorAll('input[name="group_krws[]"]').forEach(function(el){ el.required = false; });
+  } else {
+    cnySec.style.display = 'none';
+    krwSec.style.display = 'grid';
+    cnySec.querySelectorAll('input').forEach(function(el){ el.required = false; });
+    krwSec.querySelectorAll('input[name="group_krws[]"]').forEach(function(el){ el.required = true; });
+    cardSec.style.display = (method === '카드') ? '' : 'none';
   }
 }
 
