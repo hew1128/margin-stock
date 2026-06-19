@@ -1054,44 +1054,94 @@ def stock_upload():
 
                 qty = int(qty_m.group(1))
 
-                # 상품명 기반 매칭 — p.name 이 G열에 포함되면 매칭, 옵션명도 일치하면 우선
-                scored = []
+                # Step 1: 키워드 또는 상품명으로 product_group 식별
+                matched_group = None
+                best_kw_len = 0
                 for p in products:
+                    for kw in (p['kws'] or '').split('||'):
+                        kw = kw.strip()
+                        if kw and kw in g_val and len(kw) > best_kw_len:
+                            matched_group = (p['product_group'] or '').strip() or p['name']
+                            best_kw_len = len(kw)
                     pname = (p['name'] or '').strip()
-                    popt  = (p['option_name'] or '').strip()
-                    if not pname or pname not in g_val:
-                        continue
-                    score = len(pname)  # 긴 이름일수록 구체적 매칭
-                    if popt and option_str and popt in option_str:
-                        score += 100000
-                    elif popt and popt in g_val:
-                        score += 50000
-                    scored.append((score, p))
-                candidates = []
-                if scored:
-                    max_score = max(s for s, _ in scored)
-                    candidates = [p for s, p in scored if s == max_score]
-                # FIFO: 최고점 후보 중 재고 있는 가장 오래된 배치 우선
-                matched = None
-                for c in sorted(candidates, key=lambda x: x['id']):
-                    if get_current_stock(c['id']) > 0:
-                        matched = c
-                        break
-                if not matched and candidates:
-                    matched = min(candidates, key=lambda x: x['id'])
+                    if pname and pname in g_val and len(pname) > best_kw_len:
+                        matched_group = (p['product_group'] or '').strip() or p['name']
+                        best_kw_len = len(pname)
 
-                if matched:
-                    results.append({
-                        'product_id': matched['id'],
-                        'product_name': matched['name'],
-                        'option_name': matched['option_name'] or '',
-                        'quantity': qty,
-                        'order_number': order,
-                        'raw_name': g_val[:60],
-                        'option_str': option_str,
-                    })
+                if not matched_group:
+                    unmatched.append({'order': order, 'name': g_val[:50], 'reason': '상품 그룹 매칭 실패'})
+                    continue
+
+                # Step 2: 해당 그룹의 모든 상품
+                group_prods = [p for p in products
+                               if ((p['product_group'] or '').strip() or p['name']) == matched_group]
+
+                # Step 3: 차수 타입 유무로 매칭 방식 결정
+                TIER_TYPES = {'opt1', 'opt2', 'opt3', 'add1', 'add2', 'add3', 'gift'}
+                has_tiers = any((p['product_type'] or '') in TIER_TYPES for p in group_prods)
+
+                if has_tiers:
+                    # 차수별 매칭 — option_name이 옵션 텍스트에 있으면 해당 차수 차감
+                    matched_any = False
+                    for tier in ['opt1', 'opt2', 'opt3', 'add1', 'add2', 'add3', 'gift']:
+                        tier_prods = [p for p in group_prods if (p['product_type'] or '') == tier]
+                        best, best_len = None, 0
+                        for p in tier_prods:
+                            opt = (p['option_name'] or '').strip()
+                            if not opt:
+                                continue
+                            if (option_str and opt in option_str) or opt in g_val:
+                                if len(opt) > best_len:
+                                    best, best_len = p, len(opt)
+                        if best:
+                            matched_any = True
+                            results.append({
+                                'product_id': best['id'],
+                                'product_name': f'{matched_group} / {best["option_name"]}',
+                                'option_name': best['option_name'] or '',
+                                'quantity': qty,
+                                'order_number': order,
+                                'raw_name': g_val[:60],
+                                'option_str': option_str,
+                                'tier': tier,
+                            })
+                    if not matched_any:
+                        unmatched.append({'order': order, 'name': f'{option_str or g_val[:40]}',
+                                          'reason': f'[{matched_group}] 옵션 매칭 실패'})
                 else:
-                    unmatched.append({'order': order, 'name': f'{option_str or g_val[:40]}', 'reason': '상품 매칭 실패'})
+                    # 기존 단일 매칭 (구형 상품)
+                    scored = []
+                    for p in group_prods:
+                        popt = (p['option_name'] or '').strip()
+                        score = len((p['name'] or ''))
+                        if popt and option_str and popt in option_str:
+                            score += 100000
+                        elif popt and popt in g_val:
+                            score += 50000
+                        scored.append((score, p))
+                    candidates = []
+                    if scored:
+                        max_score = max(s for s, _ in scored)
+                        candidates = [p for s, p in scored if s == max_score]
+                    matched = None
+                    for c in sorted(candidates, key=lambda x: x['id']):
+                        if get_current_stock(c['id']) > 0:
+                            matched = c
+                            break
+                    if not matched and candidates:
+                        matched = min(candidates, key=lambda x: x['id'])
+                    if matched:
+                        results.append({
+                            'product_id': matched['id'],
+                            'product_name': matched['name'],
+                            'option_name': matched['option_name'] or '',
+                            'quantity': qty,
+                            'order_number': order,
+                            'raw_name': g_val[:60],
+                            'option_str': option_str,
+                        })
+                    else:
+                        unmatched.append({'order': order, 'name': f'{option_str or g_val[:40]}', 'reason': '상품 매칭 실패'})
 
             os.unlink(tmp.name)
             session['pending_out'] = results
