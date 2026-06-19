@@ -1120,8 +1120,13 @@ def stock_upload():
                 TIER_TYPES = {'opt1', 'opt2', 'opt3', 'add1', 'add2', 'add3', 'gift'}
                 has_tiers = any((p['product_type'] or '') in TIER_TYPES for p in group_prods)
 
+                def words_match(opt_name, text):
+                    """옵션명의 모든 단어가 text에 포함되면 매칭 (순서 무관)"""
+                    words = opt_name.split()
+                    return bool(words) and all(w in text for w in words)
+
                 if has_tiers:
-                    # 차수별 매칭 — option_name이 옵션 텍스트에 있으면 해당 차수 차감
+                    # 차수별 매칭 — option_name의 모든 단어가 옵션 텍스트에 있으면 해당 차수 차감
                     matched_any = False
                     for tier in ['opt1', 'opt2', 'opt3', 'add1', 'add2', 'add3', 'gift']:
                         tier_prods = [p for p in group_prods if (p['product_type'] or '') == tier]
@@ -1130,7 +1135,7 @@ def stock_upload():
                             opt = (p['option_name'] or '').strip()
                             if not opt:
                                 continue
-                            if (option_str and opt in option_str) or opt in g_val:
+                            if (option_str and words_match(opt, option_str)) or words_match(opt, g_val):
                                 if len(opt) > best_len:
                                     best, best_len = p, len(opt)
                         if best:

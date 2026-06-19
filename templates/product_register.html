@@ -34,13 +34,13 @@
         <label>차수 타입 <span style="color:#ef4444">*</span></label>
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
           {% set types = [
-            ('opt1','옵션1','#3b82f6'),
+            ('opt1','기본 SKU','#3b82f6'),
+            ('add1','추가옵션 단품','#f59e0b'),
+            ('gift','사은품','#ef4444'),
             ('opt2','옵션2','#8b5cf6'),
             ('opt3','옵션3','#06b6d4'),
-            ('add1','추가옵션1','#f59e0b'),
             ('add2','추가옵션2','#f97316'),
             ('add3','추가옵션3','#84cc16'),
-            ('gift','사은품','#ef4444'),
           ] %}
           {% for val, lbl, color in types %}
           {% set active = (ptype == val) %}
@@ -55,7 +55,7 @@
           </label>
           {% endfor %}
         </div>
-        <p class="hint">이 상품이 어느 차수에 속하는지 선택하세요</p>
+        <p class="hint">기본 SKU: 사이즈+색상+거치방식 조합 / 추가옵션 단품: 거치대 단품 추가구매 / 사은품은 재고차감만</p>
       </div>
     </div>
   </div>
@@ -66,7 +66,7 @@
       <div class="form-group" style="margin:0">
         <label>옵션명 <span style="color:#ef4444">*</span></label>
         <input type="text" name="option_name" class="form-control" required
-               placeholder="예: 일반 블랙 / 나사형 / 집게형 단품" style="font-size:15px"
+               placeholder="예: 소형 블랙 흡착형 / 흡착형단품" style="font-size:15px"
                autofocus>
       </div>
       <div class="form-group" style="margin:0">
