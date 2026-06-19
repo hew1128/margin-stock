@@ -37,10 +37,6 @@
             ('opt1','판매 상품','#3b82f6'),
             ('add1','추가옵션 단품','#f59e0b'),
             ('gift','사은품','#ef4444'),
-            ('opt2','옵션2','#8b5cf6'),
-            ('opt3','옵션3','#06b6d4'),
-            ('add2','추가옵션2','#f97316'),
-            ('add3','추가옵션3','#84cc16'),
           ] %}
           {% for val, lbl, color in types %}
           {% set active = (ptype == val) %}
@@ -204,8 +200,7 @@
 })();
 
 var TYPE_COLORS = {
-  opt1:'#3b82f6', opt2:'#8b5cf6', opt3:'#06b6d4',
-  add1:'#f59e0b', add2:'#f97316', add3:'#84cc16', gift:'#ef4444'
+  opt1:'#3b82f6', add1:'#f59e0b', gift:'#ef4444'
 };
 
 function selectType(val, color) {
