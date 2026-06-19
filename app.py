@@ -138,6 +138,10 @@ def init_db():
         c.execute("ALTER TABLE products ADD COLUMN total_import_qty INTEGER DEFAULT 0")
     except Exception:
         pass
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT '기본상품'")
+    except Exception:
+        pass
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('exchange_rate', '190')")
     # stock_in 없는 기존 상품 → import_quantity로 초기 입고 자동 생성
     # 단, 재고 공유 그룹의 비-마스터 상품(stock_group_id != id)은 제외
@@ -462,6 +466,7 @@ def product_new():
         c = conn.cursor()
         # 공통 설정
         pg        = request.form.get('product_group', '')
+        ptype     = request.form.get('product_type', '기본상품')
         customs   = int(request.form.get('customs_total') or 0)
         shipping  = int(request.form.get('shipping_total') or 0)
         yongdal   = int(request.form.get('yongdal_total') or 0)
@@ -505,11 +510,11 @@ def product_new():
                 (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
                  customs_total, shipping_total, yongdal_total, import_quantity,
                  naver_fee_rate, domestic_shipping, purchase_date,
-                 payment_method, payment_card_info, purchase_price_krw)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 payment_method, payment_card_info, purchase_price_krw, product_type)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (name.strip(), opt, pg, price, cny, rate,
                  customs, shipping, yongdal, qty, nfr, dom_ship, pdate,
-                 method, card_info, krw_price))
+                 method, card_info, krw_price, ptype))
             pid = c.lastrowid
             if gidx not in groups:
                 groups[gidx] = []

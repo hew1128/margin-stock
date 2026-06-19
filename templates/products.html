@@ -8,8 +8,7 @@
   <div style="display:flex;gap:8px">
     <a href="/download/products" class="btn btn-secondary">📥 엑셀 다운로드</a>
     <a href="/products/trash" class="btn btn-secondary">🗑 삭제 내역</a>
-    <a href="/products/new-multi" class="btn btn-success">+ 다중옵션 등록</a>
-    <a href="/products/new" class="btn btn-primary">+ 단일옵션 등록</a>
+    <a href="/products/new" class="btn btn-primary">+ 상품 등록</a>
   </div>
 </div>
 
@@ -184,6 +183,16 @@ async function moveGroup(name, dir) {
         <span style="font-size:12px;color:#9ca3af;flex-shrink:0;min-width:100px">
           사입 {{ (item.p.purchase_date or (item.p.created_at or '')[:10]) }}
         </span>
+
+        {# 상품 구분 뱃지 #}
+        {% set ptype = item.p.product_type or '기본상품' %}
+        {% if ptype == '거치방식' %}
+          <span style="font-size:11px;font-weight:700;color:#065f46;background:#d1fae5;padding:2px 8px;border-radius:10px;flex-shrink:0">거치방식</span>
+        {% elif ptype == '추가옵션' %}
+          <span style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;padding:2px 8px;border-radius:10px;flex-shrink:0">추가옵션</span>
+        {% elif ptype == '사은품' %}
+          <span style="font-size:11px;font-weight:700;color:#991b1b;background:#fee2e2;padding:2px 8px;border-radius:10px;flex-shrink:0">사은품</span>
+        {% endif %}
 
         {# 다중옵션: 조합 뱃지 표시 #}
         {% if item.combo %}
