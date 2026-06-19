@@ -595,6 +595,68 @@ def product_new():
                            batch_groups=batch_groups, common=common)
 
 
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        conn = get_db()
+        c = conn.cursor()
+        group_name      = request.form.get('group_name', '').strip()
+        purchase_date   = request.form.get('purchase_date') or datetime.now().strftime('%Y-%m-%d')
+        exchange_rate   = float(request.form.get('exchange_rate') or 190)
+        payment_method  = request.form.get('payment_method', '위안화')
+        customs_total   = int(request.form.get('customs_total') or 0)
+        shipping_total  = int(request.form.get('shipping_total') or 0)
+        yongdal_total   = int(request.form.get('yongdal_total') or 0)
+        naver_fee_rate  = float(request.form.get('naver_fee_rate') or 2.0)
+        domestic_ship   = int(request.form.get('domestic_shipping') or 2500)
+        store_names     = [s.strip() for s in request.form.getlist('store_names[]') if s.strip()]
+
+        tier_map = {
+            'opt1': '옵션1', 'opt2': '옵션2', 'opt3': '옵션3',
+            'add1': '추가옵션1', 'add2': '추가옵션2', 'add3': '추가옵션3',
+            'gift': '사은품',
+        }
+        count = 0
+        for tk, tier_label in tier_map.items():
+            opt_names = request.form.getlist(tk + '_names[]')
+            prices    = request.form.getlist(tk + '_prices[]')
+            buys      = request.form.getlist(tk + '_buys[]')
+            for i, opt_name in enumerate(opt_names):
+                opt_name = opt_name.strip()
+                if not opt_name:
+                    continue
+                sale_price = int(prices[i]) if i < len(prices) and prices[i] else 0
+                buy_val    = float(buys[i]) if i < len(buys) and buys[i] else 0.0
+                if payment_method in ('원화', '카드'):
+                    cny, krw = 0.0, int(buy_val)
+                else:
+                    cny, krw = buy_val, 0
+                c.execute("""INSERT INTO products
+                    (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
+                     customs_total, shipping_total, yongdal_total, import_quantity,
+                     naver_fee_rate, domestic_shipping, purchase_date,
+                     payment_method, purchase_price_krw, product_type)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (tier_label, opt_name, group_name, sale_price, cny, exchange_rate,
+                     customs_total, shipping_total, yongdal_total, 0,
+                     naver_fee_rate, domestic_ship, purchase_date,
+                     payment_method, krw, tk))
+                pid = c.lastrowid
+                c.execute("UPDATE products SET stock_group_id=? WHERE id=?", (pid, pid))
+                c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
+                    (pid, 0, exchange_rate, purchase_date, '등록 초기'))
+                for sn in store_names:
+                    c.execute("INSERT INTO product_keywords (product_id, keyword) VALUES (?,?)", (pid, sn))
+                count += 1
+
+        conn.commit()
+        conn.close()
+        flash(f'{group_name} — {count}개 상품이 등록되었습니다.')
+        return redirect(url_for('products'))
+
+    return render_template('product_register.html')
+
+
 @app.route('/products/<int:pid>/edit', methods=['GET', 'POST'])
 def product_edit(pid):
     if request.method == 'POST':

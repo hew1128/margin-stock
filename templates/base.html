@@ -72,7 +72,8 @@ tbody tr:hover td{background:#fafafa}
   <span class="brand">📦 마진 &amp; 재고 관리</span>
   <div class="nav-links">
     <a href="/" {% if request.endpoint=='dashboard' %}class="on"{% endif %}>대시보드</a>
-    <a href="/products" {% if 'product' in (request.endpoint or '') %}class="on"{% endif %}>상품 관리</a>
+    <a href="/products" {% if request.endpoint in ('products','product_edit','product_new') %}class="on"{% endif %}>상품 관리</a>
+    <a href="/register" {% if request.endpoint=='register' %}class="on"{% endif %}>상품 등록</a>
     <a href="/stock/upload" {% if request.endpoint=='stock_upload' %}class="on"{% endif %}>발송파일 업로드</a>
     <a href="/history" {% if request.endpoint=='history' %}class="on"{% endif %}>입출고 이력</a>
     <a href="/bundles" {% if 'bundle' in (request.endpoint or '') %}class="on"{% endif %}>상품 구성</a>
