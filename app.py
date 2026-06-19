@@ -104,6 +104,40 @@ def init_db():
         key TEXT PRIMARY KEY,
         value TEXT
     )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS product_option_defs (
+        product_group TEXT PRIMARY KEY,
+        basic_options TEXT NOT NULL DEFAULT '[]',
+        addon_options TEXT NOT NULL DEFAULT '[]'
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS product_freebies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_group TEXT NOT NULL,
+        name TEXT NOT NULL,
+        qty_per_order INTEGER DEFAULT 1,
+        unit_cost INTEGER DEFAULT 0,
+        stock INTEGER DEFAULT 0
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS freebie_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_group TEXT NOT NULL,
+        rule_name TEXT NOT NULL,
+        freebie_id INTEGER NOT NULL,
+        freebie_qty INTEGER DEFAULT 1,
+        cond_type TEXT NOT NULL DEFAULT 'qty',
+        min_qty INTEGER DEFAULT 1,
+        option_name TEXT,
+        option_value TEXT,
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN option_combo_json TEXT")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN total_import_qty INTEGER DEFAULT 0")
+    except Exception:
+        pass
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('exchange_rate', '190')")
     # stock_in 없는 기존 상품 → import_quantity로 초기 입고 자동 생성
     # 단, 재고 공유 그룹의 비-마스터 상품(stock_group_id != id)은 제외
@@ -161,7 +195,7 @@ def update_group_order():
     return jsonify({'ok': True})
 
 
-def calculate_margin(product, exchange_rate=None):
+def calculate_margin(product, exchange_rate=None, freebie_cost=0):
     keys = product.keys() if hasattr(product, 'keys') else product
     method = (product['payment_method'] if 'payment_method' in keys else None) or '위안화'
     krw_price = (product['purchase_price_krw'] if 'purchase_price_krw' in keys else 0) or 0
@@ -172,11 +206,13 @@ def calculate_margin(product, exchange_rate=None):
         rate = float(exchange_rate or product['exchange_rate'] or 190)
         purchase_krw = product['purchase_price_cny'] * rate
     customs_total = product['customs_total'] + product['shipping_total'] + product['yongdal_total']
-    qty = product['import_quantity'] or 1
-    customs_per_unit = customs_total / qty
+    # 다중옵션 배치는 total_import_qty(전체 수량)로 개당 통관비 계산
+    total_qty = (product['total_import_qty'] if 'total_import_qty' in keys and product['total_import_qty'] else None) \
+                or product['import_quantity'] or 1
+    customs_per_unit = customs_total / total_qty
     naver_fee = sale * product['naver_fee_rate'] / 100
     tax_amount = sale * 0.1
-    total_cost_simple  = purchase_krw + customs_per_unit + naver_fee + product['domestic_shipping']
+    total_cost_simple  = purchase_krw + customs_per_unit + naver_fee + product['domestic_shipping'] + freebie_cost
     total_cost_general = total_cost_simple + tax_amount
     simple_margin  = sale - total_cost_simple
     general_margin = sale - total_cost_general
@@ -186,6 +222,7 @@ def calculate_margin(product, exchange_rate=None):
         'customs_per_unit':     round(customs_per_unit, 1),
         'naver_fee':            round(naver_fee, 1),
         'tax_amount':           round(tax_amount, 1),
+        'freebie_cost':         round(freebie_cost, 1),
         'total_cost_simple':    round(total_cost_simple, 1),
         'total_cost_general':   round(total_cost_general, 1),
         'simple_margin':        round(simple_margin, 1),
@@ -193,6 +230,72 @@ def calculate_margin(product, exchange_rate=None):
         'general_margin':       round(general_margin, 1),
         'general_margin_rate':  round(general_margin / sale * 100, 1) if sale else 0,
     }
+
+
+def load_freebie_data():
+    """사은품 정보 로드: {product_group: [freebie_dict, ...]}, {product_group: total_cost}"""
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM product_freebies ORDER BY id").fetchall()
+    conn.close()
+    by_group = {}
+    costs = {}
+    for f in rows:
+        pg = f['product_group']
+        if pg not in by_group:
+            by_group[pg] = []
+            costs[pg] = 0
+        by_group[pg].append(dict(f))
+        costs[pg] += f['qty_per_order'] * f['unit_cost']
+    return by_group, costs
+
+
+def load_option_defs():
+    """옵션 정의 로드: {product_group: {basic: [...], addon: [...]}}"""
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM product_option_defs").fetchall()
+    conn.close()
+    result = {}
+    for row in rows:
+        result[row['product_group']] = {
+            'basic': json.loads(row['basic_options'] or '[]'),
+            'addon': json.loads(row['addon_options'] or '[]'),
+        }
+    return result
+
+
+def apply_freebie_rules(conn, product_id, quantity, option_str):
+    """주문 건에 사은품 규칙 적용 → 사은품 재고 차감. conn 미닫힘/commit 미호출."""
+    product = conn.execute(
+        "SELECT product_group, name, option_name FROM products WHERE id=?", (product_id,)).fetchone()
+    if not product:
+        return []
+    pg = (product['product_group'] or '').strip() or product['name']
+    rules = conn.execute("""
+        SELECT fr.*, pf.name as freebie_name
+        FROM freebie_rules fr
+        JOIN product_freebies pf ON fr.freebie_id = pf.id
+        WHERE fr.product_group=? AND fr.is_active=1
+    """, (pg,)).fetchall()
+    deducted = []
+    for rule in rules:
+        ctype   = rule['cond_type']
+        qty_ok  = quantity >= rule['min_qty']
+        opt_ok  = True
+        if ctype in ('option', 'qty_and_option') and rule['option_value']:
+            ov = rule['option_value'].strip()
+            opt_ok = (ov in (option_str or '')) or (ov in (product['option_name'] or ''))
+        triggered = (
+            (ctype == 'qty'             and qty_ok) or
+            (ctype == 'option'          and opt_ok) or
+            (ctype == 'qty_and_option'  and qty_ok and opt_ok)
+        )
+        if triggered:
+            conn.execute("UPDATE product_freebies SET stock=MAX(0, stock-?) WHERE id=?",
+                         (rule['freebie_qty'], rule['freebie_id']))
+            deducted.append({'rule_name': rule['rule_name'],
+                             'freebie_name': rule['freebie_name'],
+                             'qty': rule['freebie_qty']})
+    return deducted
 
 
 def get_current_stock(product_id):
@@ -232,8 +335,17 @@ def get_all_products_with_keywords():
 @app.route('/')
 def dashboard():
     products = get_all_products_with_keywords()
-    items = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id']),
-              'sgid': p['stock_group_id'] or p['id']} for p in products]
+    _, freebie_costs = load_freebie_data()
+    items = []
+    for p in products:
+        pg = (p['product_group'] or '').strip() or p['name']
+        fc = freebie_costs.get(pg, 0)
+        combo = None
+        if p['option_combo_json'] if 'option_combo_json' in p.keys() else None:
+            try: combo = json.loads(p['option_combo_json'])
+            except: pass
+        items.append({'p': p, 'm': calculate_margin(p, freebie_cost=fc), 's': get_current_stock(p['id']),
+                      'sgid': p['stock_group_id'] or p['id'], 'combo': combo})
 
     # product_group(또는 name) → (name, opt) 키 3단계 그룹핑
     group_map  = {}
@@ -254,6 +366,8 @@ def dashboard():
         if pid > group_max_id[gkey]:
             group_max_id[gkey] = pid
 
+    opt_defs = load_option_defs()
+    freebies_by_group, _ = load_freebie_data()
     gkeys = sort_groups_by_setting(list(group_map.keys()), group_max_id)
     grouped = []
     for gkey in gkeys:
@@ -271,7 +385,8 @@ def dashboard():
                     total_g += i['s']
             opt_rows.append({'opt': tkey[1], 'listing': tkey[0], 'latest': its[0], 'total_s': opt_s})
         grouped.append((gkey, opt_rows, total_g))
-    return render_template('dashboard.html', grouped=grouped, group_names=gkeys)
+    return render_template('dashboard.html', grouped=grouped, group_names=gkeys,
+                           opt_defs=opt_defs, freebies_by_group=freebies_by_group)
 
 
 # ─── 상품 관리 ──────────────────────────────────────────────────────────────────
@@ -279,8 +394,29 @@ def dashboard():
 @app.route('/products')
 def products():
     prods = get_all_products_with_keywords()
-    data = [{'p': p, 'm': calculate_margin(p), 's': get_current_stock(p['id']),
-             'sgid': p['stock_group_id'] or p['id']} for p in prods]
+    _, freebie_costs = load_freebie_data()
+    opt_defs = load_option_defs()
+    freebies_by_group, _ = load_freebie_data()
+    conn_r = get_db()
+    rules_count_by_group = {r['product_group']: r['cnt'] for r in conn_r.execute(
+        "SELECT product_group, COUNT(*) as cnt FROM freebie_rules WHERE is_active=1 GROUP BY product_group"
+    ).fetchall()}
+    conn_r.close()
+    data = []
+    for p in prods:
+        pg = (p['product_group'] or '').strip() or p['name']
+        fc = freebie_costs.get(pg, 0)
+        combo = None
+        if p['option_combo_json'] if 'option_combo_json' in p.keys() else None:
+            try: combo = json.loads(p['option_combo_json'])
+            except: pass
+        max_addon_m = 0
+        for ag in opt_defs.get(pg, {}).get('addon', []):
+            best = max((ai.get('sell_price', 0) - ai.get('buy_price', 0) for ai in ag.get('items', [])), default=0)
+            if best > 0:
+                max_addon_m += best
+        data.append({'p': p, 'm': calculate_margin(p, freebie_cost=fc), 's': get_current_stock(p['id']),
+                     'sgid': p['stock_group_id'] or p['id'], 'combo': combo, 'max_addon_m': max_addon_m})
     # product_group(또는 name) → (name, opt) 키 3단계 그룹핑
     group_map  = {}
     group_max_id = {}
@@ -314,7 +450,9 @@ def products():
                     seen_sgids.add(item['sgid'])
                     group_stock += item['s']
         grouped.append((gkey, opt_list, group_stock))
-    return render_template('products.html', grouped=grouped, group_names=gkeys)
+    return render_template('products.html', grouped=grouped, group_names=gkeys,
+                           opt_defs=opt_defs, freebies_by_group=freebies_by_group,
+                           rules_count_by_group=rules_count_by_group)
 
 
 @app.route('/products/new', methods=['GET', 'POST'])
@@ -470,6 +608,227 @@ def product_edit(pid):
     return render_template('product_form.html', product=product, keywords=keywords_text)
 
 
+@app.route('/products/new-multi', methods=['GET', 'POST'])
+def product_new_multi():
+    if request.method == 'POST':
+        conn = get_db()
+        c = conn.cursor()
+        pg = request.form.get('product_group', '').strip()
+        if not pg:
+            flash('제품명(그룹)을 입력해주세요.')
+            conn.close()
+            return redirect(request.url)
+
+        # 기본 옵션 그룹 파싱
+        basic_options = []
+        for i in range(1, 4):
+            name = request.form.get(f'basic_opt_name_{i}', '').strip()
+            vals_str = request.form.get(f'basic_opt_values_{i}', '').strip()
+            if name and vals_str:
+                vals = [v.strip() for v in vals_str.split(',') if v.strip()]
+                if vals:
+                    basic_options.append({'name': name, 'values': vals})
+
+        # 추가 옵션 파싱 (형식: 값:판매추가가:사입추가가)
+        addon_options = []
+        for i in range(1, 4):
+            name = request.form.get(f'addon_opt_name_{i}', '').strip()
+            items_str = request.form.get(f'addon_opt_items_{i}', '').strip()
+            if name and items_str:
+                items = []
+                for part in items_str.split(','):
+                    ps = [x.strip() for x in part.strip().split(':')]
+                    if ps and ps[0]:
+                        items.append({
+                            'value':      ps[0],
+                            'sell_price': int(ps[1]) if len(ps) > 1 and ps[1].isdigit() else 0,
+                            'buy_price':  int(ps[2]) if len(ps) > 2 and ps[2].isdigit() else 0,
+                        })
+                if items:
+                    addon_options.append({'name': name, 'items': items})
+
+        # 옵션 정의 저장
+        c.execute("INSERT OR REPLACE INTO product_option_defs (product_group, basic_options, addon_options) VALUES (?,?,?)",
+                  (pg, json.dumps(basic_options, ensure_ascii=False),
+                   json.dumps(addon_options, ensure_ascii=False)))
+
+        # 사은품 저장
+        for i in range(1, 4):
+            fname = request.form.get(f'freebie_name_{i}', '').strip()
+            if fname:
+                qty_per  = int(request.form.get(f'freebie_qty_{i}')   or 1)
+                unit_cost = int(request.form.get(f'freebie_cost_{i}')  or 0)
+                stock    = int(request.form.get(f'freebie_stock_{i}')  or 0)
+                c.execute("INSERT INTO product_freebies (product_group, name, qty_per_order, unit_cost, stock) VALUES (?,?,?,?,?)",
+                          (pg, fname, qty_per, unit_cost, stock))
+
+        # 공통 원가
+        customs   = int(request.form.get('customs_total')    or 0)
+        shipping  = int(request.form.get('shipping_total')   or 0)
+        yongdal   = int(request.form.get('yongdal_total')    or 0)
+        nfr       = float(request.form.get('naver_fee_rate') or 2.0)
+        dom_ship  = int(request.form.get('domestic_shipping') or 2500)
+
+        # 사입 정보
+        pdate    = request.form.get('group_date') or datetime.now().strftime('%Y-%m-%d')
+        method   = request.form.get('group_method', '위안화')
+        cny      = float(request.form.get('group_cny')  or 0)
+        rate     = float(request.form.get('group_rate') or 190)
+        krw      = int(request.form.get('group_krw')    or 0)
+        card_info = request.form.get('group_card', '').strip()
+        if method in ('원화', '카드'):
+            cny = 0.0; rate = 1.0
+        else:
+            krw = 0
+
+        # SKU 데이터
+        sku_combos = request.form.getlist('sku_combo[]')
+        sku_prices = request.form.getlist('sku_sale_price[]')
+        sku_qtys   = request.form.getlist('sku_qty[]')
+        total_qty  = sum(int(q) for q in sku_qtys if q and q.isdigit())
+
+        pids = []
+        for i, combo_json in enumerate(sku_combos):
+            try:
+                combo = json.loads(combo_json)
+            except Exception:
+                continue
+            sale_price = int(sku_prices[i]) if i < len(sku_prices) and sku_prices[i] else 0
+            qty        = int(sku_qtys[i])   if i < len(sku_qtys)   and sku_qtys[i]   else 0
+            option_name = ' / '.join(combo.values())
+            c.execute("""INSERT INTO products
+                (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
+                 customs_total, shipping_total, yongdal_total, import_quantity,
+                 naver_fee_rate, domestic_shipping, purchase_date,
+                 payment_method, payment_card_info, purchase_price_krw,
+                 option_combo_json, total_import_qty)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (pg, option_name, pg, sale_price, cny, rate,
+                 customs, shipping, yongdal, qty, nfr, dom_ship, pdate,
+                 method, card_info, krw, combo_json, total_qty))
+            pid = c.lastrowid
+            pids.append((pid, qty))
+
+        # stock_group_id 설정 + stock_in
+        for pid, qty in pids:
+            c.execute("UPDATE products SET stock_group_id=? WHERE id=?", (pid, pid))
+            if qty > 0:
+                c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
+                          (pid, qty, rate, pdate, '다중옵션 등록 초기 입고'))
+
+        conn.commit()
+        conn.close()
+        flash(f'{len(pids)}개 SKU 등록 완료.')
+        return redirect(url_for('products'))
+
+    return render_template('product_form_multi.html')
+
+
+@app.route('/freebies/<int:fid>/adjust', methods=['POST'])
+def freebie_adjust(fid):
+    action = request.form.get('action', 'add')
+    qty    = int(request.form.get('qty') or 0)
+    conn = get_db()
+    if action == 'add':
+        conn.execute("UPDATE product_freebies SET stock=stock+? WHERE id=?", (qty, fid))
+    elif action == 'subtract':
+        conn.execute("UPDATE product_freebies SET stock=MAX(0, stock-?) WHERE id=?", (qty, fid))
+    conn.commit()
+    conn.close()
+    return redirect(request.referrer or url_for('products'))
+
+
+@app.route('/products/<group>/freebie-rules', methods=['GET', 'POST'])
+def freebie_rules_page(group):
+    if request.method == 'POST':
+        rule_name    = request.form.get('rule_name', '').strip()
+        cond_type    = request.form.get('cond_type', 'qty')
+        min_qty      = int(request.form.get('min_qty') or 1)
+        option_name  = request.form.get('option_name', '').strip()
+        option_value = request.form.get('option_value', '').strip()
+        freebie_id   = int(request.form.get('freebie_id') or 0)
+        freebie_qty  = int(request.form.get('freebie_qty') or 1)
+        if not rule_name or not freebie_id:
+            flash('규칙 이름과 사은품을 입력해주세요.')
+        else:
+            conn = get_db()
+            conn.execute("""INSERT INTO freebie_rules
+                (product_group, rule_name, freebie_id, freebie_qty, cond_type, min_qty, option_name, option_value)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (group, rule_name, freebie_id, freebie_qty, cond_type, min_qty,
+                 option_name  if cond_type != 'qty' else None,
+                 option_value if cond_type != 'qty' else None))
+            conn.commit()
+            conn.close()
+            flash('규칙이 추가되었습니다.')
+        return redirect(url_for('freebie_rules_page', group=group))
+
+    conn = get_db()
+    freebies = [dict(r) for r in conn.execute(
+        "SELECT * FROM product_freebies WHERE product_group=? ORDER BY id", (group,)).fetchall()]
+    rules = [dict(r) for r in conn.execute("""
+        SELECT fr.*, pf.name as freebie_name
+        FROM freebie_rules fr
+        LEFT JOIN product_freebies pf ON fr.freebie_id = pf.id
+        WHERE fr.product_group=? AND fr.is_active=1
+        ORDER BY fr.id
+    """, (group,)).fetchall()]
+    opt_def_row = conn.execute(
+        "SELECT basic_options FROM product_option_defs WHERE product_group=?", (group,)).fetchone()
+    conn.close()
+    basic_options = json.loads(opt_def_row['basic_options'] if opt_def_row else '[]')
+    return render_template('freebie_rules.html', group=group, freebies=freebies, rules=rules,
+                           basic_options=basic_options,
+                           basic_options_json=json.dumps(basic_options, ensure_ascii=False))
+
+
+@app.route('/freebie-rules/<int:rid>/delete', methods=['POST'])
+def freebie_rule_delete(rid):
+    conn = get_db()
+    rule = conn.execute("SELECT product_group FROM freebie_rules WHERE id=?", (rid,)).fetchone()
+    group = rule['product_group'] if rule else None
+    conn.execute("DELETE FROM freebie_rules WHERE id=?", (rid,))
+    conn.commit()
+    conn.close()
+    flash('규칙이 삭제되었습니다.')
+    return redirect(url_for('freebie_rules_page', group=group) if group else url_for('products'))
+
+
+@app.route('/freebie-rules/<int:rid>/manual', methods=['POST'])
+def freebie_rule_manual(rid):
+    qty        = int(request.form.get('qty') or 1)
+    option_str = request.form.get('option_str', '').strip()
+    conn = get_db()
+    rule = conn.execute("""
+        SELECT fr.*, pf.name as freebie_name
+        FROM freebie_rules fr
+        LEFT JOIN product_freebies pf ON fr.freebie_id = pf.id
+        WHERE fr.id=?
+    """, (rid,)).fetchone()
+    if rule:
+        ctype  = rule['cond_type']
+        qty_ok = qty >= rule['min_qty']
+        opt_ok = True
+        if ctype in ('option', 'qty_and_option') and rule['option_value']:
+            ov = rule['option_value'].strip()
+            opt_ok = (ov in option_str) if option_str else True
+        triggered = (
+            (ctype == 'qty'            and qty_ok) or
+            (ctype == 'option'         and opt_ok) or
+            (ctype == 'qty_and_option' and qty_ok and opt_ok)
+        )
+        group = rule['product_group']
+        if triggered:
+            conn.execute("UPDATE product_freebies SET stock=MAX(0, stock-?) WHERE id=?",
+                         (rule['freebie_qty'], rule['freebie_id']))
+            conn.commit()
+            flash(f'[{rule["rule_name"]}] 사은품 "{rule["freebie_name"]}" {rule["freebie_qty"]}개 수동 차감 완료')
+        else:
+            flash(f'[{rule["rule_name"]}] 조건 미충족 (수량:{qty} / 옵션:"{option_str or "-"}") — 차감하지 않았습니다')
+    conn.close()
+    return redirect(request.referrer or url_for('products'))
+
+
 @app.route('/products/<int:pid>/delete', methods=['POST'])
 def product_delete(pid):
     conn = get_db()
@@ -552,15 +911,23 @@ def stock_upload():
         if request.form.get('confirm') == '1':
             pending = session.pop('pending_out', [])
             filename = session.pop('pending_file', '')
+            all_deducted = []
             if pending:
                 today = datetime.now().strftime('%Y-%m-%d')
                 conn = get_db()
                 for r in pending:
                     conn.execute("INSERT INTO stock_out (product_id, quantity, date, source, file_name, order_number) VALUES (?,?,?,'file',?,?)",
                         (r['product_id'], r['quantity'], today, filename, r['order_number']))
+                    all_deducted.extend(apply_freebie_rules(conn, r['product_id'], r['quantity'], r.get('option_str', '')))
                 conn.commit()
                 conn.close()
-                flash(f'{len(pending)}건 출고 처리되었습니다.')
+                msg = f'{len(pending)}건 출고 처리되었습니다.'
+                if all_deducted:
+                    qty_sum = {}
+                    for d in all_deducted:
+                        qty_sum[d['freebie_name']] = qty_sum.get(d['freebie_name'], 0) + d['qty']
+                    msg += ' | 사은품 자동 차감: ' + ', '.join(f'{n} {q}개' for n, q in qty_sum.items())
+                flash(msg)
             return redirect(url_for('dashboard'))
 
         # 파일 파싱

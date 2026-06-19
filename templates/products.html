@@ -8,7 +8,8 @@
   <div style="display:flex;gap:8px">
     <a href="/download/products" class="btn btn-secondary">📥 엑셀 다운로드</a>
     <a href="/products/trash" class="btn btn-secondary">🗑 삭제 내역</a>
-    <a href="/products/new" class="btn btn-primary">+ 상품 등록</a>
+    <a href="/products/new-multi" class="btn btn-success">+ 다중옵션 등록</a>
+    <a href="/products/new" class="btn btn-primary">+ 단일옵션 등록</a>
   </div>
 </div>
 
@@ -58,6 +59,80 @@ async function moveGroup(name, dir) {
   {# ── Level 2: 옵션 목록 ── #}
   <div id="n{{gi}}" style="display:none;border:1px solid #e5e7eb;border-top:none;
        border-radius:0 0 10px 10px;overflow:hidden">
+
+  {# 옵션 정의 + 추가옵션 + 사은품 (다중옵션 상품만) #}
+  {% set defs = opt_defs.get(name, {}) %}
+  {% set freebies = freebies_by_group.get(name, []) %}
+  {% if defs or freebies %}
+  <div style="padding:14px 20px;background:#f8faff;border-bottom:2px solid #e0e7ff">
+    {% if defs.get('basic') %}
+    <div style="margin-bottom:10px">
+      <span style="font-size:11px;font-weight:700;color:#4f46e5;letter-spacing:.5px">기본 옵션</span>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
+        {% for g in defs.basic %}
+        <div style="background:#fff;border:1px solid #c7d2fe;border-radius:8px;padding:6px 12px;font-size:12px">
+          <span style="font-weight:700;color:#4338ca">{{ g.name }}</span>
+          <span style="color:#6b7280;margin:0 4px">→</span>
+          <span>{{ g.values | join(', ') }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if defs.get('addon') %}
+    <div style="margin-bottom:10px">
+      <span style="font-size:11px;font-weight:700;color:#059669;letter-spacing:.5px">추가 옵션 (마진 포함)</span>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
+        {% for a in defs.addon %}
+        <div style="background:#fff;border:1px solid #a7f3d0;border-radius:8px;padding:6px 12px;font-size:12px">
+          <span style="font-weight:700;color:#065f46">{{ a.name }}</span>
+          <span style="color:#6b7280;margin-left:6px">
+            {% for item in a.items %}
+            {{ item.value }} (+{{ '{:,}'.format(item.sell_price) }}원 / 원가 {{ '{:,}'.format(item.buy_price) }}원){% if not loop.last %},  {% endif %}
+            {% endfor %}
+          </span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if freebies %}
+    <div>
+      <span style="font-size:11px;font-weight:700;color:#dc2626;letter-spacing:.5px">사은품</span>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
+        {% for f in freebies %}
+        <div style="background:#fff;border:1px solid #fca5a5;border-radius:8px;padding:6px 12px;font-size:12px;display:flex;align-items:center;gap:8px">
+          <span style="font-weight:700;color:#991b1b">{{ f.name }}</span>
+          <span style="color:#6b7280">주문당 {{ f.qty_per_order }}개 · 개당 {{ '{:,}'.format(f.unit_cost) }}원</span>
+          <span class="badge {{ 'bg-green' if f.stock > 10 else ('bg-yellow' if f.stock > 0 else 'bg-red') }}"
+                style="font-size:12px">재고 {{ f.stock }}개</span>
+          <form method="POST" action="/freebies/{{ f.id }}/adjust" style="display:inline-flex;gap:4px" onclick="event.stopPropagation()">
+            <input type="number" name="qty" value="1" min="1" style="width:48px;padding:3px 6px;border:1px solid #e5e7eb;border-radius:5px;font-size:12px">
+            <input type="hidden" name="action" value="add">
+            <button type="submit" style="background:#10b981;color:#fff;border:none;border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer">+입고</button>
+          </form>
+          <form method="POST" action="/freebies/{{ f.id }}/adjust" style="display:inline-flex;gap:4px" onclick="event.stopPropagation()">
+            <input type="number" name="qty" value="1" min="1" style="width:48px;padding:3px 6px;border:1px solid #e5e7eb;border-radius:5px;font-size:12px">
+            <input type="hidden" name="action" value="subtract">
+            <button type="submit" style="background:#ef4444;color:#fff;border:none;border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer">-출고</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# 사은품 규칙 관리 #}
+    {% set rule_cnt = rules_count_by_group.get(name, 0) %}
+    <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+      <span style="font-size:11px;font-weight:700;color:#92400e;letter-spacing:.5px">사은품 규칙</span>
+      <a href="{{ url_for('freebie_rules_page', group=name) }}"
+         style="text-decoration:none;background:#fff;border:1px solid #fbbf24;border-radius:8px;padding:5px 12px;font-size:12px;color:#92400e;font-weight:600;display:inline-flex;align-items:center;gap:6px">
+        ⚙ 규칙 관리
+        {% if rule_cnt > 0 %}<span style="background:#10b981;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px">{{ rule_cnt }}개 활성</span>{% endif %}
+      </a>
+    </div>
+  </div>
+  {% endif %}
 
   {% for optrow in opt_list %}
   {% set oi = loop.index %}
@@ -110,6 +185,13 @@ async function moveGroup(name, dir) {
           사입 {{ (item.p.purchase_date or (item.p.created_at or '')[:10]) }}
         </span>
 
+        {# 다중옵션: 조합 뱃지 표시 #}
+        {% if item.combo %}
+          <span style="font-size:12px;color:#4f46e5;background:#eef2ff;padding:2px 8px;border-radius:6px;flex-shrink:0;white-space:nowrap">
+            {% for k,v in item.combo.items() %}{{ v }}{% if not loop.last %} / {% endif %}{% endfor %}
+          </span>
+        {% endif %}
+
         <span class="badge {{ 'bg-green' if item.s > 10 else ('bg-yellow' if item.s > 0 else 'bg-red') }}"
               style="font-size:12px;padding:3px 9px;flex-shrink:0">{{ item.s }}개</span>
 
@@ -123,16 +205,26 @@ async function moveGroup(name, dir) {
 
         <div style="flex:1"></div>
 
-        <div style="background:#f0fdf4;padding:4px 10px;border-radius:6px;text-align:right;min-width:90px;flex-shrink:0">
+        <div style="background:#f0fdf4;padding:4px 10px;border-radius:6px;text-align:right;min-width:{% if item.max_addon_m > 0 %}140{% else %}90{% endif %}px;flex-shrink:0">
+          {% if item.max_addon_m > 0 %}
+          <div style="font-size:11px;font-weight:800;color:{{ '#10b981' if item.m.simple_margin >= 0 else '#ef4444' }}">
+            {{ '{:,.0f}'.format(item.m.simple_margin) }}~{{ '{:,.0f}'.format(item.m.simple_margin + item.max_addon_m) }}원</div>
+          {% else %}
           <div style="font-size:13px;font-weight:800;color:{{ '#10b981' if item.m.simple_margin >= 0 else '#ef4444' }}">
             {{ '{:,.0f}'.format(item.m.simple_margin) }}원</div>
+          {% endif %}
           <div style="font-size:10px;color:{{ '#10b981' if item.m.simple_margin_rate >= 0 else '#ef4444' }}">
             간이 {{ '{:.1f}'.format(item.m.simple_margin_rate) }}%</div>
         </div>
 
-        <div style="background:#eff6ff;padding:4px 10px;border-radius:6px;text-align:right;min-width:90px;flex-shrink:0">
+        <div style="background:#eff6ff;padding:4px 10px;border-radius:6px;text-align:right;min-width:{% if item.max_addon_m > 0 %}140{% else %}90{% endif %}px;flex-shrink:0">
+          {% if item.max_addon_m > 0 %}
+          <div style="font-size:11px;font-weight:800;color:{{ '#2563eb' if item.m.general_margin >= 0 else '#ef4444' }}">
+            {{ '{:,.0f}'.format(item.m.general_margin) }}~{{ '{:,.0f}'.format(item.m.general_margin + item.max_addon_m) }}원</div>
+          {% else %}
           <div style="font-size:13px;font-weight:800;color:{{ '#2563eb' if item.m.general_margin >= 0 else '#ef4444' }}">
             {{ '{:,.0f}'.format(item.m.general_margin) }}원</div>
+          {% endif %}
           <div style="font-size:10px;color:{{ '#2563eb' if item.m.general_margin_rate >= 0 else '#ef4444' }}">
             일반 {{ '{:.1f}'.format(item.m.general_margin_rate) }}%</div>
         </div>
@@ -180,6 +272,7 @@ async function moveGroup(name, dir) {
             ('수수료율',    '{}%'.format(item.p.naver_fee_rate)),
             ('수수료 금액', '{:,.1f}'.format(item.m.naver_fee) + '원'),
             ('국내 택배비', '{:,}'.format(item.p.domestic_shipping) + '원'),
+            ('사은품 원가', '{:,.0f}'.format(item.m.freebie_cost) + '원'),
             ('일반세금',    '{:,.1f}'.format(item.m.tax_amount) + '원'),
           ] %}
           <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:11px 14px">
@@ -217,6 +310,30 @@ async function moveGroup(name, dir) {
             </div>
           </div>
         </div>
+
+        {# 추가 옵션 마진 (다중옵션 상품만) #}
+        {% set addon_defs = opt_defs.get(item.p.product_group or item.p.name, {}).get('addon', []) %}
+        {% if addon_defs %}
+        <div style="margin-top:16px;padding:14px;background:#f0fdf4;border-radius:10px;border:1px solid #a7f3d0">
+          <div style="font-size:12px;font-weight:700;color:#065f46;margin-bottom:10px">
+            추가 옵션 선택 시 마진{% if item.max_addon_m > 0 %} <span style="font-weight:400;color:#6b7280">— 최대 <span style="color:#10b981;font-weight:700">+{{ '{:,.0f}'.format(item.max_addon_m) }}원</span></span>{% endif %}
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            {% for addon in addon_defs %}
+            {% for aitem in addon.items %}
+            {% set extra_margin = aitem.sell_price - aitem.buy_price %}
+            <div style="background:#fff;border:1px solid #6ee7b7;border-radius:8px;padding:8px 12px;font-size:12px">
+              <div style="font-weight:600;color:#374151">{{ addon.name }}: {{ aitem.value }}</div>
+              <div style="color:#6b7280;margin-top:2px">판매 +{{ '{:,}'.format(aitem.sell_price) }}원 / 원가 +{{ '{:,}'.format(aitem.buy_price) }}원</div>
+              <div style="font-weight:700;color:{{ '#10b981' if extra_margin >= 0 else '#ef4444' }};margin-top:2px">
+                추가 마진: {{ '+' if extra_margin >= 0 }}{{ '{:,}'.format(extra_margin) }}원
+              </div>
+            </div>
+            {% endfor %}
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
       </div>
 
     </div>

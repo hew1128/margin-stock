@@ -1,0 +1,214 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div>
+    <a href="{{ url_for('products') }}" style="color:#6b7280;font-size:13px;text-decoration:none">← 상품 관리</a>
+    <h1 style="margin-top:4px">사은품 규칙 — {{ group }}</h1>
+    <p>조건이 충족되면 발송파일 업로드 시 자동으로, 또는 수동으로 사은품 재고를 차감합니다</p>
+  </div>
+</div>
+
+{# 사은품 목록 요약 #}
+{% if freebies %}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">등록된 사은품</div>
+  <div style="display:flex;flex-wrap:wrap;gap:10px">
+    {% for f in freebies %}
+    <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 16px;font-size:13px;display:flex;align-items:center;gap:10px">
+      <span style="font-weight:700;color:#991b1b">{{ f.name }}</span>
+      <span class="badge {{ 'bg-green' if f.stock > 10 else ('bg-yellow' if f.stock > 0 else 'bg-red') }}">재고 {{ f.stock }}개</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="card" style="margin-bottom:16px;color:#9ca3af;text-align:center;padding:30px">
+  등록된 사은품이 없습니다. 상품 관리에서 다중옵션 등록을 통해 사은품을 먼저 추가해주세요.
+</div>
+{% endif %}
+
+{# 규칙 추가 폼 #}
+{% if freebies %}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">새 규칙 추가</div>
+
+  {# 조건 타입 안내 #}
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 14px;font-size:12px">
+      <div style="font-weight:700;color:#1e40af;margin-bottom:4px">A. 총 수량 조건</div>
+      <div style="color:#374151">주문 수량이 N개 이상일 때 발동<br><span style="color:#6b7280">예: 2개 이상 구매 시</span></div>
+    </div>
+    <div style="background:#f0fdf4;border:1px solid #a7f3d0;border-radius:8px;padding:12px 14px;font-size:12px">
+      <div style="font-weight:700;color:#065f46;margin-bottom:4px">B. 특정 옵션 조건</div>
+      <div style="color:#374151">특정 옵션값을 선택한 경우 발동<br><span style="color:#6b7280">예: 사이즈=대형 구매 시</span></div>
+    </div>
+    <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;font-size:12px">
+      <div style="font-weight:700;color:#92400e;margin-bottom:4px">A + B. 수량 + 옵션 동시</div>
+      <div style="color:#374151">수량 N개 이상 AND 특정 옵션값<br><span style="color:#6b7280">예: 대형 2개 이상 구매 시</span></div>
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('freebie_rules_page', group=group) }}">
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="form-group">
+        <label>규칙 이름 <span style="color:#ef4444">*</span></label>
+        <input type="text" name="rule_name" class="form-control" placeholder="예: 대형 2개 이상 구매시 에코백 지급" required>
+      </div>
+      <div class="form-group">
+        <label>조건 타입 <span style="color:#ef4444">*</span></label>
+        <select name="cond_type" class="form-control" id="condTypeSelect" onchange="updateCondUI()">
+          <option value="qty">A. 총 수량 ≥ N개</option>
+          <option value="option">B. 특정 옵션값 포함</option>
+          <option value="qty_and_option">A + B. 수량 + 옵션 동시</option>
+        </select>
+      </div>
+      <div class="form-group" id="minQtyGroup">
+        <label>최소 수량 (N개)</label>
+        <input type="number" name="min_qty" class="form-control" min="1" value="1">
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:14px" id="optionGroup">
+      <div class="form-group">
+        <label>옵션 그룹</label>
+        <select name="option_name" class="form-control" id="optionNameSelect" onchange="updateOptionValues()">
+          <option value="">-- 선택 --</option>
+          {% for g in basic_options %}
+          <option value="{{ g.name }}">{{ g.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>옵션값</label>
+        <select name="option_value" class="form-control" id="optionValueSelect">
+          <option value="">-- 옵션 그룹 먼저 선택 --</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>사은품 <span style="color:#ef4444">*</span></label>
+        <select name="freebie_id" class="form-control">
+          {% for f in freebies %}
+          <option value="{{ f.id }}">{{ f.name }} (재고 {{ f.stock }}개)</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>지급 수량</label>
+        <input type="number" name="freebie_qty" class="form-control" min="1" value="1">
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">+ 규칙 추가</button>
+  </form>
+</div>
+{% endif %}
+
+{# 현재 활성 규칙 목록 #}
+<div class="card">
+  <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>활성 규칙</span>
+    <span class="badge {{ 'bg-blue' if rules else 'bg-gray' }}">{{ rules|length }}개</span>
+  </div>
+
+  {% if rules %}
+  <table>
+    <thead>
+      <tr>
+        <th style="width:24%">규칙 이름</th>
+        <th style="width:28%">발동 조건</th>
+        <th style="width:20%">사은품 지급</th>
+        <th style="width:22%">수동 발동</th>
+        <th style="width:6%"></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in rules %}
+    <tr>
+      <td class="bold">{{ r.rule_name }}</td>
+      <td>
+        {% if r.cond_type == 'qty' %}
+          <span class="badge bg-blue">수량 ≥ {{ r.min_qty }}개</span>
+        {% elif r.cond_type == 'option' %}
+          <span class="badge bg-green">{{ r.option_name }} = {{ r.option_value }}</span>
+        {% else %}
+          <span class="badge bg-blue" style="margin-right:4px">수량 ≥ {{ r.min_qty }}개</span>
+          <span class="badge bg-green">{{ r.option_name }} = {{ r.option_value }}</span>
+        {% endif %}
+      </td>
+      <td>
+        <span style="font-weight:600">{{ r.freebie_name }}</span>
+        <span class="gray sm"> × {{ r.freebie_qty }}개</span>
+      </td>
+      <td>
+        <form method="POST" action="{{ url_for('freebie_rule_manual', rid=r.id) }}"
+              style="display:flex;align-items:center;gap:5px">
+          {% if r.cond_type in ('qty', 'qty_and_option') %}
+          <input type="number" name="qty" value="1" min="1" title="수량"
+                 style="width:52px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:5px;font-size:12px">
+          {% else %}
+          <input type="hidden" name="qty" value="1">
+          {% endif %}
+          {% if r.cond_type in ('option', 'qty_and_option') %}
+          <input type="text" name="option_str" value="{{ r.option_value }}" title="옵션값 (비우면 항상 발동)"
+                 style="width:72px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:5px;font-size:12px">
+          {% endif %}
+          <button type="submit" onclick="return confirm('사은품 재고를 수동으로 차감하시겠습니까?')"
+                  style="background:#f59e0b;color:#fff;border:none;border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap">
+            수동 발동
+          </button>
+        </form>
+      </td>
+      <td>
+        <form method="POST" action="{{ url_for('freebie_rule_delete', rid=r.id) }}"
+              onsubmit="return confirm('이 규칙을 삭제하시겠습니까?')">
+          <button type="submit" class="btn btn-danger btn-sm">삭제</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <div style="margin-top:16px;padding:12px 16px;background:#f8faff;border-radius:8px;font-size:12px;color:#6b7280;border:1px solid #e0e7ff">
+    <strong style="color:#4f46e5">자동 발동 안내</strong> — 발송파일 업로드 후 출고 확정 시, 각 주문 건에 대해 조건이 맞는 규칙이 자동으로 발동되어 사은품 재고가 차감됩니다. 수동 발동은 별도로 서비스 제공 시 사용하세요.
+  </div>
+  {% else %}
+  <div style="color:#9ca3af;text-align:center;padding:40px">
+    등록된 규칙이 없습니다.<br>
+    <span style="font-size:12px">위 폼에서 조건을 설정하고 규칙을 추가하세요.</span>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+var OPTION_DEFS = {{ basic_options_json | safe }};
+
+function updateCondUI() {
+  var t = document.getElementById('condTypeSelect').value;
+  var minQtyGroup = document.getElementById('minQtyGroup');
+  var optionGroup = document.getElementById('optionGroup');
+  if (minQtyGroup) minQtyGroup.style.display = (t === 'option') ? 'none' : '';
+  if (optionGroup) optionGroup.style.display  = (t === 'qty')   ? 'none' : '';
+}
+
+function updateOptionValues() {
+  var name = document.getElementById('optionNameSelect').value;
+  var sel  = document.getElementById('optionValueSelect');
+  sel.innerHTML = '';
+  if (!name) {
+    sel.innerHTML = '<option value="">-- 옵션 그룹 먼저 선택 --</option>';
+    return;
+  }
+  var group = OPTION_DEFS.find(function(g) { return g.name === name; });
+  if (group && group.values) {
+    group.values.forEach(function(v) {
+      var opt = document.createElement('option');
+      opt.value = v; opt.text = v;
+      sel.appendChild(opt);
+    });
+  }
+}
+
+updateCondUI();
+</script>
+{% endblock %}

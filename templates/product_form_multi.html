@@ -1,0 +1,285 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div>
+    <h1>다중 옵션 상품 등록</h1>
+    <p>기본 옵션 최대 3개 + 추가 옵션 최대 3개 + 사은품 관리</p>
+  </div>
+  <a href="/products" class="btn btn-secondary">← 목록으로</a>
+</div>
+
+<form method="POST" action="/products/new-multi" id="mform">
+
+  <!-- ① 제품명 -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">제품 기본 정보</div>
+    <div class="form-group" style="margin:0">
+      <label>실제 제품명 (그룹) *</label>
+      <input type="text" name="product_group" class="form-control" required placeholder="예: 사무실캐노피">
+      <p class="hint">목록/분석에서 이 이름으로 표시됩니다</p>
+    </div>
+  </div>
+
+  <!-- ② 기본 옵션 (3개 고정 슬롯) -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">기본 옵션 그룹 (최대 3개)</div>
+    <p class="hint" style="margin-bottom:14px">각 옵션값을 쉼표로 구분해 입력 — SKU 조합 자동 생성에 사용됩니다</p>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;align-items:center;margin-bottom:10px;font-size:11px;color:#9ca3af;font-weight:600;padding-bottom:6px;border-bottom:1px solid #f3f4f6">
+      <span>옵션명</span><span>옵션값 (쉼표 구분)</span>
+    </div>
+    {% for i in range(1,4) %}
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;margin-bottom:10px">
+      <input type="text" name="basic_opt_name_{{ i }}" class="form-control" placeholder="{{ ['사이즈','색상','거치방식'][i-1] }}">
+      <input type="text" name="basic_opt_values_{{ i }}" id="bv{{ i }}" class="form-control" oninput="clearSkus()"
+             placeholder="{{ ['일반, 대형','블랙, 블루, 옐로우','흡착형, 집게형, 나사형'][i-1] }}">
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ③ 추가 옵션 (3개 고정 슬롯) -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">추가 옵션 (최대 3개)</div>
+    <p class="hint" style="margin-bottom:14px">
+      형식: <strong>값명:판매추가가:사입추가가</strong> (쉼표로 구분)<br>
+      예) 흡착형:2500:1500, 집게형:3000:2000, 나사형:3500:2500
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;align-items:center;margin-bottom:10px;font-size:11px;color:#9ca3af;font-weight:600;padding-bottom:6px;border-bottom:1px solid #f3f4f6">
+      <span>추가옵션명</span><span>값:판매추가가:사입추가가</span>
+    </div>
+    {% for i in range(1,4) %}
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;margin-bottom:10px">
+      <input type="text" name="addon_opt_name_{{ i }}" class="form-control" placeholder="{{ ['거치대 단품추가','',''][i-1] }}">
+      <input type="text" name="addon_opt_items_{{ i }}" class="form-control"
+             placeholder="{{ ['흡착형:2500:1500, 집게형:3000:2000','',''][i-1] }}">
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ④ 사은품 -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">사은품 (최대 3개)</div>
+    <p class="hint" style="margin-bottom:14px">주문 1건당 증정하는 사은품 — 개당 원가가 마진에서 차감됩니다</p>
+    <div style="display:grid;grid-template-columns:2fr 80px 90px 90px;gap:8px;align-items:center;margin-bottom:8px;font-size:11px;color:#9ca3af;font-weight:600;padding-bottom:6px;border-bottom:1px solid #f3f4f6">
+      <span>사은품명</span><span>주문당 수량</span><span>개당 원가(원)</span><span>현재 재고</span>
+    </div>
+    {% for i in range(1,4) %}
+    <div style="display:grid;grid-template-columns:2fr 80px 90px 90px;gap:8px;margin-bottom:8px">
+      <input type="text" name="freebie_name_{{ i }}" class="form-control" placeholder="{{ ['스마트폰 홀더','',''][i-1] }}">
+      <input type="number" name="freebie_qty_{{ i }}" class="form-control" value="1" min="1">
+      <input type="number" name="freebie_cost_{{ i }}" class="form-control" value="0" min="0">
+      <input type="number" name="freebie_stock_{{ i }}" class="form-control" value="0" min="0">
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ⑤ 사입 정보 -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">사입 정보 (전체 SKU 공통)</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:10px 14px;background:#f9fafb;border-radius:8px">
+      <span style="font-size:12px;color:#6b7280;font-weight:600;min-width:54px">결제 방식</span>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;padding:5px 14px;border:1.5px solid #6ee7b7;border-radius:20px;background:#f0fdf4">
+        <input type="radio" name="group_method" value="위안화" checked onchange="togglePay(this)">위안화</label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;padding:5px 14px;border:1.5px solid #93c5fd;border-radius:20px;background:#eff6ff">
+        <input type="radio" name="group_method" value="원화" onchange="togglePay(this)">원화</label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;padding:5px 14px;border:1.5px solid #fcd34d;border-radius:20px;background:#fffbeb">
+        <input type="radio" name="group_method" value="카드" onchange="togglePay(this)">카드</label>
+    </div>
+    <div style="display:grid;grid-template-columns:160px 1fr;gap:12px">
+      <div class="form-group" style="margin:0">
+        <label>사입 날짜 *</label>
+        <input type="date" name="group_date" class="form-control" required id="gdate">
+      </div>
+      <div class="pf-cny" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group" style="margin:0">
+          <label>개당 사입가 (위안) *</label>
+          <input type="number" step="0.01" name="group_cny" class="form-control" placeholder="25.50" id="gcny">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>구입 환율 (위안→원) *</label>
+          <input type="number" step="0.01" name="group_rate" class="form-control" placeholder="220" id="grate">
+        </div>
+      </div>
+      <div class="pf-krw" style="display:none;grid-column:2;display:none">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group" style="margin:0">
+            <label>개당 사입가 (원화) *</label>
+            <input type="number" name="group_krw" class="form-control" placeholder="5600" id="gkrw">
+          </div>
+          <div class="pf-card" style="display:none">
+            <div class="form-group" style="margin:0">
+              <label>카드사 + 뒷4자리</label>
+              <input type="text" name="group_card" class="form-control" placeholder="신한카드 1234">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑥ 공통 원가 -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">공통 원가 설정</div>
+    <p class="hint" style="margin-bottom:14px">통관 비용은 이번 배치 전체 기준 총액 — 전체 수량으로 나눠 SKU별 원가에 반영됩니다</p>
+    <div class="row3">
+      <div class="form-group">
+        <label>관세 합계 (원)</label>
+        <input type="number" name="customs_total" class="form-control" value="0">
+      </div>
+      <div class="form-group">
+        <label>운송비 합계 (원)</label>
+        <input type="number" name="shipping_total" class="form-control" value="0">
+      </div>
+      <div class="form-group">
+        <label>용달 합계 (원)</label>
+        <input type="number" name="yongdal_total" class="form-control" value="0">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="form-group">
+        <label>네이버 수수료율 (%)</label>
+        <input type="number" step="0.01" name="naver_fee_rate" class="form-control" value="2.0">
+      </div>
+      <div class="form-group">
+        <label>국내 택배비 (원)</label>
+        <input type="number" name="domestic_shipping" class="form-control" value="2500">
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑦ SKU 자동 생성 -->
+  <div class="card" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="card-title" style="margin:0">SKU 조합 자동 생성</div>
+      <button type="button" onclick="generateSkus()" class="btn btn-primary">⚡ SKU 자동 생성</button>
+    </div>
+    <p class="hint" style="margin-bottom:14px">위 기본 옵션 입력 후 버튼 클릭 → 모든 조합이 자동 생성됩니다. 각 조합별 판매가와 수량을 입력하세요.</p>
+
+    <div id="sku-section" style="display:none">
+      <div style="display:grid;grid-template-columns:3fr 120px 90px;gap:8px;align-items:center;padding:8px 0;font-size:11px;color:#9ca3af;font-weight:600;border-bottom:2px solid #e5e7eb">
+        <span>옵션 조합</span><span>판매가 (원)</span><span>수량 (개)</span>
+      </div>
+      <div id="sku-tbody"></div>
+      <div id="sku-summary" style="margin-top:12px;padding:10px 14px;background:#f0fdf4;border-radius:8px;font-size:13px;color:#065f46;font-weight:600"></div>
+    </div>
+  </div>
+
+  <div class="flex mt" style="margin-bottom:40px">
+    <button type="submit" class="btn btn-primary btn-lg" onclick="return validateForm()">등록하기</button>
+    <a href="/products" class="btn btn-secondary btn-lg">취소</a>
+  </div>
+</form>
+
+<script>
+document.getElementById('gdate').value = new Date().toISOString().slice(0,10);
+
+function togglePay(radio) {
+  var method = radio.value;
+  var cnySec  = document.querySelector('.pf-cny');
+  var krwSec  = document.querySelector('.pf-krw');
+  var cardSec = document.querySelector('.pf-card');
+  if (method === '위안화') {
+    cnySec.style.display = 'grid'; krwSec.style.display = 'none';
+  } else {
+    cnySec.style.display = 'none'; krwSec.style.display = 'grid';
+    cardSec.style.display = (method === '카드') ? '' : 'none';
+  }
+}
+
+var skuRows = [];
+
+function clearSkus() {
+  if (skuRows.length > 0) {
+    document.getElementById('sku-tbody').innerHTML = '';
+    document.getElementById('sku-section').style.display = 'none';
+    skuRows = [];
+  }
+}
+
+function generateSkus() {
+  var groups = [];
+  for (var i = 1; i <= 3; i++) {
+    var name = document.querySelector('[name="basic_opt_name_' + i + '"]').value.trim();
+    var vals = document.querySelector('[name="basic_opt_values_' + i + '"]').value.trim();
+    if (name && vals) {
+      var vArr = vals.split(',').map(function(v){ return v.trim(); }).filter(Boolean);
+      if (vArr.length > 0) groups.push({name: name, values: vArr});
+    }
+  }
+  if (groups.length === 0) {
+    alert('기본 옵션을 먼저 입력해주세요.');
+    return;
+  }
+
+  // 카르테시안 곱
+  var combos = [{}];
+  groups.forEach(function(g) {
+    var next = [];
+    combos.forEach(function(c) {
+      g.values.forEach(function(v) {
+        var n = Object.assign({}, c);
+        n[g.name] = v;
+        next.push(n);
+      });
+    });
+    combos = next;
+  });
+
+  // 기존 값 보존
+  var existing = {};
+  document.querySelectorAll('#sku-tbody .sku-row').forEach(function(row) {
+    var key = row.dataset.key;
+    var sp  = row.querySelector('[name="sku_sale_price[]"]');
+    var qty = row.querySelector('[name="sku_qty[]"]');
+    if (key) existing[key] = {sp: sp ? sp.value : '', qty: qty ? qty.value : '0'};
+  });
+
+  var tbody = document.getElementById('sku-tbody');
+  tbody.innerHTML = '';
+  skuRows = [];
+
+  combos.forEach(function(combo) {
+    // 키 정렬
+    var sorted = {};
+    Object.keys(combo).sort().forEach(function(k){ sorted[k] = combo[k]; });
+    var key = JSON.stringify(sorted);
+    var label = Object.entries(sorted).map(function(kv){ return kv[0]+': '+kv[1]; }).join(' / ');
+    var prev = existing[key] || {};
+
+    var row = document.createElement('div');
+    row.className = 'sku-row';
+    row.dataset.key = key;
+    row.style.cssText = 'display:grid;grid-template-columns:3fr 120px 90px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #f3f4f6';
+    row.innerHTML =
+      '<span style="font-size:13px;color:#374151">' + label + '</span>' +
+      '<div><input type="number" name="sku_sale_price[]" value="' + (prev.sp||'') + '" placeholder="35000" class="form-control" required oninput="updateSummary()" style="text-align:right"></div>' +
+      '<div style="display:flex;gap:4px;align-items:center">' +
+        '<input type="number" name="sku_qty[]" value="' + (prev.qty||'0') + '" min="0" class="form-control" style="text-align:center" oninput="updateSummary()">' +
+        '<input type="hidden" name="sku_combo[]" value=\'' + key.replace(/'/g,"&#39;") + '\'>' +
+      '</div>';
+    tbody.appendChild(row);
+    skuRows.push(row);
+  });
+
+  document.getElementById('sku-section').style.display = 'block';
+  updateSummary();
+}
+
+function updateSummary() {
+  var totalQty = 0;
+  document.querySelectorAll('[name="sku_qty[]"]').forEach(function(el){
+    totalQty += parseInt(el.value) || 0;
+  });
+  var n = document.querySelectorAll('.sku-row').length;
+  document.getElementById('sku-summary').textContent =
+    '총 ' + n + '개 SKU 조합 / 전체 수량: ' + totalQty + '개';
+}
+
+function validateForm() {
+  if (skuRows.length === 0) {
+    alert('SKU 자동 생성 버튼을 클릭해 조합을 생성하세요.');
+    return false;
+  }
+  return true;
+}
+</script>
+{% endblock %}
