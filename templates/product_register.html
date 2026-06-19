@@ -43,6 +43,17 @@
             </select>
           </div>
         </div>
+        <div id="cardInfoRow" style="display:none;margin-top:10px;display:none;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <div style="font-size:11px;color:#6b7280;margin-bottom:4px">카드사</div>
+            <input type="text" name="card_company" class="form-control" placeholder="예: 신한, 국민, 하나, 삼성">
+          </div>
+          <div>
+            <div style="font-size:11px;color:#6b7280;margin-bottom:4px">카드번호 뒤 4자리</div>
+            <input type="text" name="card_last4" class="form-control" maxlength="4" placeholder="예: 1234"
+                   oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+          </div>
+        </div>
       </div>
     </div>
 
@@ -111,7 +122,7 @@
 
     <div id="{{ key }}_body" style="{% if not default_open %}display:none;{% endif %}border-top:1px solid #f3f4f6;background:{{ bg }};padding:16px 20px">
       <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 36px;gap:8px;font-size:11px;color:#6b7280;font-weight:600;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,.06)">
-        <span>옵션명</span><span>판매가 (원)</span><span>사입가 (위안 또는 원)</span><span></span>
+        <span>옵션명</span><span>판매가 (원)</span><span class="buy-label">사입가 (위안)</span><span></span>
       </div>
       <div id="{{ key }}_rows"></div>
       <button type="button" onclick="addRow('{{ key }}')"
@@ -131,6 +142,19 @@
 <script>
 var TODAY = new Date().toISOString().slice(0,10);
 document.getElementById('purchaseDate').value = TODAY;
+
+function togglePayMethod(sel) {
+  var cardRow  = document.getElementById('cardInfoRow');
+  var exchRow  = document.getElementById('exchRate').parentElement;
+  var isCard   = sel.value === '카드';
+  var isCny    = sel.value === '위안화';
+  cardRow.style.display  = isCard ? 'grid' : 'none';
+  exchRow.style.opacity  = isCny  ? '1'    : '0.3';
+  // 모든 사입가 컬럼 헤더 라벨 업데이트
+  document.querySelectorAll('.buy-label').forEach(function(el) {
+    el.textContent = isCny ? '사입가 (위안)' : '사입가 (원)';
+  });
+}
 
 function toggleSection(key) {
   var body  = document.getElementById(key + '_body');

@@ -610,6 +610,9 @@ def register():
         naver_fee_rate  = float(request.form.get('naver_fee_rate') or 2.0)
         domestic_ship   = int(request.form.get('domestic_shipping') or 2500)
         store_names     = [s.strip() for s in request.form.getlist('store_names[]') if s.strip()]
+        card_company    = request.form.get('card_company', '').strip()
+        card_last4      = request.form.get('card_last4', '').strip()
+        card_info       = f'{card_company} {card_last4}'.strip() if (card_company or card_last4) else ''
 
         tier_map = {
             'opt1': '옵션1', 'opt2': '옵션2', 'opt3': '옵션3',
@@ -635,12 +638,12 @@ def register():
                     (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
                      customs_total, shipping_total, yongdal_total, import_quantity,
                      naver_fee_rate, domestic_shipping, purchase_date,
-                     payment_method, purchase_price_krw, product_type)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     payment_method, purchase_price_krw, payment_card_info, product_type)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (tier_label, opt_name, group_name, sale_price, cny, exchange_rate,
                      customs_total, shipping_total, yongdal_total, 0,
                      naver_fee_rate, domestic_ship, purchase_date,
-                     payment_method, krw, tk))
+                     payment_method, krw, card_info, tk))
                 pid = c.lastrowid
                 c.execute("UPDATE products SET stock_group_id=? WHERE id=?", (pid, pid))
                 c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
