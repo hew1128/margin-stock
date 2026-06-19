@@ -35,7 +35,9 @@
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
           {% set types = [
             ('opt1','판매 상품','#3b82f6'),
-            ('add1','추가옵션 단품','#f59e0b'),
+            ('add1','추가옵션1','#f59e0b'),
+            ('add2','추가옵션2','#f97316'),
+            ('add3','추가옵션3','#84cc16'),
             ('gift','사은품','#ef4444'),
           ] %}
           {% for val, lbl, color in types %}
@@ -200,7 +202,7 @@
 })();
 
 var TYPE_COLORS = {
-  opt1:'#3b82f6', add1:'#f59e0b', gift:'#ef4444'
+  opt1:'#3b82f6', add1:'#f59e0b', add2:'#f97316', add3:'#84cc16', gift:'#ef4444'
 };
 
 function selectType(val, color) {
