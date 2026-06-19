@@ -1276,5 +1276,12 @@ def download_history():
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
+@app.route('/backup-db')
+def backup_db():
+    fname = f"margin_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+    return send_file(DB_PATH, as_attachment=True, download_name=fname,
+                     mimetype='application/octet-stream')
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)
