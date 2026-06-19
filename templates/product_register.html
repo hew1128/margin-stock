@@ -30,30 +30,20 @@
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px">사입일</div>
             <input type="date" name="purchase_date" class="form-control" id="purchaseDate">
           </div>
-          <div>
+          <div id="exchRateWrap">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px">환율(위안→원)</div>
             <input type="number" name="exchange_rate" class="form-control" value="190" step="0.01" id="exchRate">
           </div>
           <div>
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px">결제방식</div>
-            <select name="payment_method" class="form-control" onchange="togglePayMethod(this)">
+            <select name="payment_method" class="form-control" id="payMethod" onchange="togglePayMethod(this)">
               <option value="위안화">위안화</option>
               <option value="원화">원화</option>
               <option value="카드">카드</option>
             </select>
           </div>
         </div>
-        <div id="cardInfoRow" style="display:none;margin-top:10px;display:none;grid-template-columns:1fr 1fr;gap:8px">
-          <div>
-            <div style="font-size:11px;color:#6b7280;margin-bottom:4px">카드사</div>
-            <input type="text" name="card_company" class="form-control" placeholder="예: 신한, 국민, 하나, 삼성">
-          </div>
-          <div>
-            <div style="font-size:11px;color:#6b7280;margin-bottom:4px">카드번호 뒤 4자리</div>
-            <input type="text" name="card_last4" class="form-control" maxlength="4" placeholder="예: 1234"
-                   oninput="this.value=this.value.replace(/[^0-9]/g,'')">
-          </div>
-        </div>
+        <p class="hint" id="cardHint" style="display:none;color:#f59e0b;margin-top:6px">카드 결제: 아래 각 행에 카드사와 뒤 4자리를 입력하세요</p>
       </div>
     </div>
 
@@ -94,7 +84,7 @@
     </div>
   </div>
 
-  {# ── 옵션 섹션 공통 템플릿 (JS로 생성) ── #}
+  {# ── 옵션 섹션 ── #}
   {% set sections = [
     ('opt1',  '옵션1',    '2차', '#3b82f6', '#eff6ff', True),
     ('opt2',  '옵션2',    '3차', '#8b5cf6', '#f5f3ff', False),
@@ -115,14 +105,19 @@
         <span style="font-size:14px;font-weight:700">{{ label }}</span>
         <span id="{{ key }}_badge" style="font-size:11px;color:#9ca3af">없음</span>
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <span id="{{ key }}_arrow" style="font-size:13px;color:#9ca3af;transition:transform .2s">{% if default_open %}▼{% else %}▶{% endif %}</span>
-      </div>
+      <span id="{{ key }}_arrow" style="font-size:13px;color:#9ca3af">{% if default_open %}▼{% else %}▶{% endif %}</span>
     </div>
 
     <div id="{{ key }}_body" style="{% if not default_open %}display:none;{% endif %}border-top:1px solid #f3f4f6;background:{{ bg }};padding:16px 20px">
-      <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 36px;gap:8px;font-size:11px;color:#6b7280;font-weight:600;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,.06)">
-        <span>옵션명</span><span>판매가 (원)</span><span class="buy-label">사입가 (위안)</span><span></span>
+      {# 컬럼 헤더 #}
+      <div id="{{ key }}_header" class="row-header"
+           style="display:grid;grid-template-columns:1.5fr 1fr 1fr 36px;gap:8px;font-size:11px;color:#6b7280;font-weight:600;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,.06)">
+        <span>옵션명</span>
+        <span>판매가 (원)</span>
+        <span class="buy-label">사입가 (위안)</span>
+        <span class="card-header" style="display:none">카드사</span>
+        <span class="card-header" style="display:none">뒤 4자리</span>
+        <span></span>
       </div>
       <div id="{{ key }}_rows"></div>
       <button type="button" onclick="addRow('{{ key }}')"
@@ -143,56 +138,66 @@
 var TODAY = new Date().toISOString().slice(0,10);
 document.getElementById('purchaseDate').value = TODAY;
 
+var isCard = false;
+var GRID_NORMAL = '1.5fr 1fr 1fr 36px';
+var GRID_CARD   = '1.5fr 1fr 1fr 0.8fr 0.8fr 36px';
+
 function togglePayMethod(sel) {
-  var cardRow  = document.getElementById('cardInfoRow');
-  var exchRow  = document.getElementById('exchRate').parentElement;
-  var isCard   = sel.value === '카드';
-  var isCny    = sel.value === '위안화';
-  cardRow.style.display  = isCard ? 'grid' : 'none';
-  exchRow.style.opacity  = isCny  ? '1'    : '0.3';
-  // 모든 사입가 컬럼 헤더 라벨 업데이트
+  isCard = sel.value === '카드';
+  var isCny = sel.value === '위안화';
+
+  document.getElementById('exchRateWrap').style.opacity = isCny ? '1' : '0.35';
+  document.getElementById('cardHint').style.display = isCard ? '' : 'none';
+
+  // 사입가 라벨
   document.querySelectorAll('.buy-label').forEach(function(el) {
     el.textContent = isCny ? '사입가 (위안)' : '사입가 (원)';
   });
-}
 
-function toggleSection(key) {
-  var body  = document.getElementById(key + '_body');
-  var arrow = document.getElementById(key + '_arrow');
-  var open  = body.style.display !== 'none';
-  body.style.display = open ? 'none' : '';
-  arrow.textContent  = open ? '▶' : '▼';
-  if (!open && document.getElementById(key + '_rows').children.length === 0) {
-    addRow(key);
-  }
+  // 헤더 그리드 + 카드 헤더 칸 표시
+  document.querySelectorAll('.row-header').forEach(function(el) {
+    el.style.gridTemplateColumns = isCard ? GRID_CARD : GRID_NORMAL;
+    el.querySelectorAll('.card-header').forEach(function(ch) {
+      ch.style.display = isCard ? '' : 'none';
+    });
+  });
+
+  // 기존 행 그리드 + 카드 칸 표시
+  document.querySelectorAll('.opt-row').forEach(function(row) {
+    row.style.gridTemplateColumns = isCard ? GRID_CARD : GRID_NORMAL;
+    row.querySelectorAll('.card-field').forEach(function(f) {
+      f.style.display = isCard ? '' : 'none';
+    });
+  });
 }
 
 function addRow(key) {
   var container = document.getElementById(key + '_rows');
   var div = document.createElement('div');
-  div.style.cssText = 'display:grid;grid-template-columns:1.5fr 1fr 1fr 36px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(0,0,0,.04)';
+  div.className = 'opt-row';
+  div.style.cssText = 'display:grid;grid-template-columns:' + (isCard ? GRID_CARD : GRID_NORMAL)
+                    + ';gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(0,0,0,.04)';
   div.innerHTML =
-    '<input type="text"   name="' + key + '_names[]"   class="form-control" placeholder="예: 일반 / 블랙 / 흡착형">'
-    +'<input type="number" name="' + key + '_prices[]"  class="form-control" placeholder="0" value="0" oninput="updateBadge(\'' + key + '\')">'
-    +'<input type="number" name="' + key + '_buys[]"    class="form-control" placeholder="0" value="0" step="0.01">'
-    +'<input type="hidden" name="' + key + '_qtys[]"    value="1">'
-    +'<button type="button" onclick="removeRow(this,\'' + key + '\')" '
-    +'style="width:32px;height:32px;border:1px solid #fca5a5;background:#fff;border-radius:6px;cursor:pointer;color:#ef4444;font-size:18px;line-height:1;padding:0">×</button>';
+    '<input type="text"   name="' + key + '_names[]"  class="form-control" placeholder="예: 일반 블랙">'
+    +'<input type="number" name="' + key + '_prices[]" class="form-control" placeholder="0" value="0" oninput="updateBadge(\'' + key + '\')">'
+    +'<input type="number" name="' + key + '_buys[]"   class="form-control" placeholder="0" value="0" step="0.01">'
+    +'<input type="text"   name="' + key + '_cards[]"  class="form-control card-field" placeholder="신한" style="' + (isCard ? '' : 'display:none') + '">'
+    +'<input type="text"   name="' + key + '_last4s[]" class="form-control card-field" placeholder="1234" maxlength="4"'
+    +' oninput="this.value=this.value.replace(/[^0-9]/g,\'\')" style="' + (isCard ? '' : 'display:none') + '">'
+    +'<button type="button" onclick="removeRow(this,\'' + key + '\')"'
+    +' style="width:32px;height:32px;border:1px solid #fca5a5;background:#fff;border-radius:6px;cursor:pointer;color:#ef4444;font-size:18px;line-height:1;padding:0">×</button>';
   container.appendChild(div);
   updateBadge(key);
 }
 
 function removeRow(btn, key) {
-  var container = document.getElementById(key + '_rows');
-  if (container.children.length <= 1) { btn.closest('div').remove(); updateBadge(key); return; }
-  btn.closest('div').remove();
+  btn.closest('.opt-row').remove();
   updateBadge(key);
 }
 
 function updateBadge(key) {
-  var container = document.getElementById(key + '_rows');
+  var cnt = document.getElementById(key + '_rows').children.length;
   var badge = document.getElementById(key + '_badge');
-  var cnt = container.children.length;
   badge.textContent = cnt > 0 ? cnt + '개' : '없음';
   badge.style.color = cnt > 0 ? '#10b981' : '#9ca3af';
 }
@@ -207,7 +212,17 @@ function addStoreName() {
   container.appendChild(div);
 }
 
-// 옵션1은 기본으로 열기
+function toggleSection(key) {
+  var body  = document.getElementById(key + '_body');
+  var arrow = document.getElementById(key + '_arrow');
+  var open  = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  arrow.textContent  = open ? '▶' : '▼';
+  if (!open && document.getElementById(key + '_rows').children.length === 0) {
+    addRow(key);
+  }
+}
+
 window.addEventListener('DOMContentLoaded', function() {
   if (document.getElementById('opt1_rows').children.length === 0) addRow('opt1');
 });

@@ -610,9 +610,6 @@ def register():
         naver_fee_rate  = float(request.form.get('naver_fee_rate') or 2.0)
         domestic_ship   = int(request.form.get('domestic_shipping') or 2500)
         store_names     = [s.strip() for s in request.form.getlist('store_names[]') if s.strip()]
-        card_company    = request.form.get('card_company', '').strip()
-        card_last4      = request.form.get('card_last4', '').strip()
-        card_info       = f'{card_company} {card_last4}'.strip() if (card_company or card_last4) else ''
 
         tier_map = {
             'opt1': '옵션1', 'opt2': '옵션2', 'opt3': '옵션3',
@@ -624,12 +621,17 @@ def register():
             opt_names = request.form.getlist(tk + '_names[]')
             prices    = request.form.getlist(tk + '_prices[]')
             buys      = request.form.getlist(tk + '_buys[]')
+            cards     = request.form.getlist(tk + '_cards[]')
+            last4s    = request.form.getlist(tk + '_last4s[]')
             for i, opt_name in enumerate(opt_names):
                 opt_name = opt_name.strip()
                 if not opt_name:
                     continue
                 sale_price = int(prices[i]) if i < len(prices) and prices[i] else 0
                 buy_val    = float(buys[i]) if i < len(buys) and buys[i] else 0.0
+                card_co    = cards[i].strip()  if i < len(cards)  and cards[i]  else ''
+                card_no    = last4s[i].strip() if i < len(last4s) and last4s[i] else ''
+                card_info  = f'{card_co} {card_no}'.strip() if (card_co or card_no) else ''
                 if payment_method in ('원화', '카드'):
                     cny, krw = 0.0, int(buy_val)
                 else:
