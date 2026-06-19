@@ -162,6 +162,17 @@ def init_db():
         FOREIGN KEY (tier_id) REFERENCES bundle_tiers(id),
         FOREIGN KEY (product_id) REFERENCES products(id)
     )''')
+    # stock_in에 사입가 컬럼 추가 (재사입 시 배치별 가격 추적용)
+    for col, typedef in [
+        ('purchase_price_cny', 'REAL DEFAULT 0'),
+        ('purchase_price_krw', 'INTEGER DEFAULT 0'),
+        ('payment_method',     "TEXT DEFAULT '위안화'"),
+        ('card_info',          'TEXT'),
+    ]:
+        try:
+            c.execute(f"ALTER TABLE stock_in ADD COLUMN {col} {typedef}")
+        except Exception:
+            pass
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('exchange_rate', '190')")
     # stock_in 없는 기존 상품 → import_quantity로 초기 입고 자동 생성
     # 단, 재고 공유 그룹의 비-마스터 상품(stock_group_id != id)은 제외
@@ -597,69 +608,77 @@ def product_new():
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    TIER_LABELS = {
+        'opt1': '옵션1', 'opt2': '옵션2', 'opt3': '옵션3',
+        'add1': '추가옵션1', 'add2': '추가옵션2', 'add3': '추가옵션3',
+        'gift': '사은품',
+    }
     if request.method == 'POST':
         conn = get_db()
         c = conn.cursor()
-        group_name      = request.form.get('group_name', '').strip()
-        purchase_date   = request.form.get('purchase_date') or datetime.now().strftime('%Y-%m-%d')
-        exchange_rate   = float(request.form.get('exchange_rate') or 190)
-        payment_method  = request.form.get('payment_method', '위안화')
-        customs_total   = int(request.form.get('customs_total') or 0)
-        shipping_total  = int(request.form.get('shipping_total') or 0)
-        yongdal_total   = int(request.form.get('yongdal_total') or 0)
-        naver_fee_rate  = float(request.form.get('naver_fee_rate') or 2.0)
-        domestic_ship   = int(request.form.get('domestic_shipping') or 2500)
-        store_names     = [s.strip() for s in request.form.getlist('store_names[]') if s.strip()]
+        group_name     = request.form.get('group_name', '').strip()
+        product_type   = request.form.get('product_type', 'opt1')
+        option_name    = request.form.get('option_name', '').strip()
+        sale_price     = int(request.form.get('sale_price') or 0)
+        purchase_date  = request.form.get('purchase_date') or datetime.now().strftime('%Y-%m-%d')
+        quantity       = int(request.form.get('quantity') or 0)
+        payment_method = request.form.get('payment_method', '위안화')
+        exchange_rate  = float(request.form.get('exchange_rate') or 190)
+        purchase_price = float(request.form.get('purchase_price') or 0)
+        card_company   = request.form.get('card_company', '').strip()
+        card_last4     = request.form.get('card_last4', '').strip()
+        card_info      = f'{card_company} {card_last4}'.strip()
+        customs_total  = int(request.form.get('customs_total') or 0)
+        shipping_total = int(request.form.get('shipping_total') or 0)
+        yongdal_total  = int(request.form.get('yongdal_total') or 0)
+        naver_fee_rate = float(request.form.get('naver_fee_rate') or 2.0)
+        domestic_ship  = int(request.form.get('domestic_shipping') or 2500)
+        store_names    = [s.strip() for s in request.form.getlist('store_names[]') if s.strip()]
+        tier_label     = TIER_LABELS.get(product_type, '옵션1')
 
-        tier_map = {
-            'opt1': '옵션1', 'opt2': '옵션2', 'opt3': '옵션3',
-            'add1': '추가옵션1', 'add2': '추가옵션2', 'add3': '추가옵션3',
-            'gift': '사은품',
-        }
-        count = 0
-        for tk, tier_label in tier_map.items():
-            opt_names = request.form.getlist(tk + '_names[]')
-            prices    = request.form.getlist(tk + '_prices[]')
-            buys      = request.form.getlist(tk + '_buys[]')
-            cards     = request.form.getlist(tk + '_cards[]')
-            last4s    = request.form.getlist(tk + '_last4s[]')
-            for i, opt_name in enumerate(opt_names):
-                opt_name = opt_name.strip()
-                if not opt_name:
-                    continue
-                sale_price = int(prices[i]) if i < len(prices) and prices[i] else 0
-                buy_val    = float(buys[i]) if i < len(buys) and buys[i] else 0.0
-                card_co    = cards[i].strip()  if i < len(cards)  and cards[i]  else ''
-                card_no    = last4s[i].strip() if i < len(last4s) and last4s[i] else ''
-                card_info  = f'{card_co} {card_no}'.strip() if (card_co or card_no) else ''
-                if payment_method in ('원화', '카드'):
-                    cny, krw = 0.0, int(buy_val)
-                else:
-                    cny, krw = buy_val, 0
-                c.execute("""INSERT INTO products
-                    (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
-                     customs_total, shipping_total, yongdal_total, import_quantity,
-                     naver_fee_rate, domestic_shipping, purchase_date,
-                     payment_method, purchase_price_krw, payment_card_info, product_type)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (tier_label, opt_name, group_name, sale_price, cny, exchange_rate,
-                     customs_total, shipping_total, yongdal_total, 0,
-                     naver_fee_rate, domestic_ship, purchase_date,
-                     payment_method, krw, card_info, tk))
-                pid = c.lastrowid
-                c.execute("UPDATE products SET stock_group_id=? WHERE id=?", (pid, pid))
-                c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
-                    (pid, 0, exchange_rate, purchase_date, '등록 초기'))
-                for sn in store_names:
-                    c.execute("INSERT INTO product_keywords (product_id, keyword) VALUES (?,?)", (pid, sn))
-                count += 1
+        if payment_method in ('원화', '카드'):
+            cny, krw = 0.0, int(purchase_price)
+        else:
+            cny, krw = purchase_price, 0
 
+        c.execute("""INSERT INTO products
+            (name, option_name, product_group, sale_price, purchase_price_cny, exchange_rate,
+             customs_total, shipping_total, yongdal_total, import_quantity,
+             naver_fee_rate, domestic_shipping, purchase_date,
+             payment_method, purchase_price_krw, payment_card_info, product_type)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (tier_label, option_name, group_name, sale_price, cny, exchange_rate,
+             customs_total, shipping_total, yongdal_total, quantity,
+             naver_fee_rate, domestic_ship, purchase_date,
+             payment_method, krw, card_info, product_type))
+        pid = c.lastrowid
+        c.execute("UPDATE products SET stock_group_id=? WHERE id=?", (pid, pid))
+        c.execute("""INSERT INTO stock_in
+            (product_id, quantity, exchange_rate, date, memo,
+             purchase_price_cny, purchase_price_krw, payment_method, card_info)
+            VALUES (?,?,?,?,?,?,?,?,?)""",
+            (pid, quantity, exchange_rate, purchase_date, '최초 등록',
+             cny, krw, payment_method, card_info))
+        for sn in store_names:
+            c.execute("INSERT INTO product_keywords (product_id, keyword) VALUES (?,?)", (pid, sn))
         conn.commit()
         conn.close()
-        flash(f'{group_name} — {count}개 상품이 등록되었습니다.')
+        flash(f'[{group_name}] {tier_label} "{option_name}" 등록 완료')
+
+        if request.form.get('continue'):
+            return redirect(url_for('register', group=group_name, type=product_type))
         return redirect(url_for('products'))
 
-    return render_template('product_register.html')
+    # GET
+    conn = get_db()
+    existing_groups = [r[0] for r in conn.execute(
+        "SELECT DISTINCT product_group FROM products WHERE is_active=1 AND product_group IS NOT NULL ORDER BY product_group"
+    ).fetchall()]
+    conn.close()
+    return render_template('product_register.html',
+                           existing_groups=existing_groups,
+                           prefill_group=request.args.get('group', ''),
+                           prefill_type=request.args.get('type', ''))
 
 
 @app.route('/products/<int:pid>/edit', methods=['GET', 'POST'])
