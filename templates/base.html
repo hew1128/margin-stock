@@ -75,6 +75,7 @@ tbody tr:hover td{background:#fafafa}
     <a href="/products" {% if 'product' in (request.endpoint or '') %}class="on"{% endif %}>상품 관리</a>
     <a href="/stock/upload" {% if request.endpoint=='stock_upload' %}class="on"{% endif %}>발송파일 업로드</a>
     <a href="/history" {% if request.endpoint=='history' %}class="on"{% endif %}>입출고 이력</a>
+    <a href="/bundles" {% if 'bundle' in (request.endpoint or '') %}class="on"{% endif %}>상품 구성</a>
     <a href="/analytics" {% if request.endpoint=='analytics' %}class="on"{% endif %}>분석</a>
     <a href="/backup-db" style="color:rgba(255,255,255,.5);padding:7px 12px;border-radius:7px;font-size:12px;border:1px solid rgba(255,255,255,.2)" title="DB 백업 다운로드">💾 백업</a>
   </div>

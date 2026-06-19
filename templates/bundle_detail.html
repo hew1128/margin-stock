@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div>
+    <a href="{{ url_for('bundles') }}" style="color:#6b7280;font-size:13px;text-decoration:none">← 상품 구성 목록</a>
+    <h1 style="margin-top:4px">{{ b.name }}</h1>
+    {% if store_names %}
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+      {% for sn in store_names %}
+      <span style="font-size:12px;background:#e0e7ff;color:#3730a3;padding:3px 10px;border-radius:6px">{{ sn }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# 전체 요약 #}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+  {% set ns_total = namespace(stock=0, simple=0.0, general=0.0, counted=[]) %}
+  {% for td in tiers %}
+    {% for item in td.items %}
+      {% if td.tier.tier_order == 2 and item.sgid not in ns_total.counted if item.sgid is defined else true %}
+        {% set ns_total.stock = ns_total.stock + item.s %}
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.07);text-align:center">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">총 재고</div>
+    <div style="font-size:22px;font-weight:800;color:#111">
+      {% if tiers %}{{ tiers[0].items | sum(attribute='s') }}{% else %}0{% endif %}개
+    </div>
+  </div>
+  {% for td in tiers %}
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.07);text-align:center">
+    <div style="font-size:11px;color:#9ca3af;margin-bottom:4px">{{ td.tier.tier_order }}차. {{ td.tier.tier_label }}</div>
+    <div style="font-size:20px;font-weight:800;color:{{ '#10b981' if td.items|sum(attribute='s') > 0 else '#ef4444' }}">
+      {{ td.items | sum(attribute='s') }}개
+    </div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:2px">{{ td.items|length }}종</div>
+  </div>
+  {% endfor %}
+</div>
+
+{# 차수별 상세 #}
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+  <div style="background:#4f46e5;color:#fff;border-radius:8px;padding:4px 14px;font-size:13px;font-weight:700">1차</div>
+  <span style="font-size:16px;font-weight:700">{{ b.name }}</span>
+</div>
+
+{% for td in tiers %}
+<div class="card" style="margin-bottom:12px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+    <div style="background:#6b7280;color:#fff;border-radius:8px;padding:4px 12px;font-size:13px;font-weight:700">{{ td.tier.tier_order }}차</div>
+    <span style="font-size:15px;font-weight:700">{{ td.tier.tier_label }}</span>
+    <span class="badge {{ 'bg-green' if td.items|sum(attribute='s') > 0 else 'bg-red' }}">
+      총 {{ td.items|sum(attribute='s') }}개
+    </span>
+  </div>
+
+  {% if td.items %}
+  <table>
+    <thead>
+      <tr>
+        <th>상품명</th><th>옵션명</th><th class="tr">재고</th>
+        <th class="tr">판매가</th><th class="tr">간이마진</th><th class="tr">일반마진</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for item in td.items %}
+    <tr>
+      <td class="bold" style="font-size:13px">{{ item.p.name }}</td>
+      <td>{% if item.p.option_name %}<span class="badge bg-blue">{{ item.p.option_name }}</span>{% else %}-{% endif %}</td>
+      <td class="tr">
+        <span class="badge {{ 'bg-green' if item.s > 10 else ('bg-yellow' if item.s > 0 else 'bg-red') }}">{{ item.s }}개</span>
+      </td>
+      <td class="tr bold">{{ '{:,}'.format(item.p.sale_price) }}원</td>
+      <td class="tr" style="color:{{ '#10b981' if item.m.simple_margin >= 0 else '#ef4444' }};font-weight:700">
+        {{ '{:,.0f}'.format(item.m.simple_margin) }}원
+        <div style="font-size:10px;font-weight:400;color:#9ca3af">{{ '{:.1f}'.format(item.m.simple_margin_rate) }}%</div>
+      </td>
+      <td class="tr" style="color:{{ '#2563eb' if item.m.general_margin >= 0 else '#ef4444' }};font-weight:700">
+        {{ '{:,.0f}'.format(item.m.general_margin) }}원
+        <div style="font-size:10px;font-weight:400;color:#9ca3af">{{ '{:.1f}'.format(item.m.general_margin_rate) }}%</div>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color:#aaa;text-align:center;padding:20px">이 차수에 상품이 없습니다</div>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

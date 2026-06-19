@@ -161,36 +161,16 @@ window.addEventListener('DOMContentLoaded',calc);
 <form method="POST" action="/products/new" id="pform">
 
   <div class="card" style="margin-bottom:16px">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
-      <div class="form-group" style="margin:0">
-        <label>카테고리명 (대그룹) *</label>
-        {% if is_add_batch %}
-        <input type="text" name="product_group" class="form-control"
-               value="{{ group_name }}" readonly style="background:#f3f4f6;color:#374151;font-weight:700;font-size:15px">
-        {% else %}
-        <input type="text" name="product_group" class="form-control"
-               placeholder="예: 사무실 캐노피" style="font-size:15px;font-weight:600" required>
-        {% endif %}
-        <p class="hint">이 이름 아래에 기본상품, 거치방식, 추가옵션, 사은품이 전부 묶입니다</p>
-      </div>
-      <div class="form-group" style="margin:0">
-        <label>상품 구분 *</label>
-        <input type="hidden" name="product_type" id="productTypeInput" value="기본상품">
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:2px">
-          {% for t, color, bg, desc in [
-            ('기본상품', '#1e40af', '#dbeafe', '사이즈·색상 등 기본 옵션 SKU'),
-            ('거치방식', '#065f46', '#d1fae5', '거치방식·조립방식 등 별도 부품'),
-            ('추가옵션', '#92400e', '#fef3c7', '별도 구매 추가 구성품'),
-            ('사은품',   '#991b1b', '#fee2e2', '조건 충족 시 무료 증정품'),
-          ] %}
-          <label onclick="setType('{{ t }}')" id="typebtn_{{ t }}"
-                 style="display:flex;flex-direction:column;align-items:flex-start;padding:10px 14px;border:2px solid {% if loop.first %}{{ color }}{% else %}#e5e7eb{% endif %};border-radius:10px;background:{% if loop.first %}{{ bg }}{% else %}#fff{% endif %};cursor:pointer;min-width:110px;transition:all .15s">
-            <span style="font-weight:700;font-size:13px;color:{{ color }}">{{ t }}</span>
-            <span style="font-size:11px;color:#6b7280;margin-top:2px">{{ desc }}</span>
-          </label>
-          {% endfor %}
-        </div>
-      </div>
+    <div class="form-group" style="margin:0">
+      <label>제품명 (검색 키워드용)</label>
+      {% if is_add_batch %}
+      <input type="text" name="product_group" class="form-control"
+             value="{{ group_name }}" readonly style="background:#f3f4f6;color:#374151;font-weight:600">
+      {% else %}
+      <input type="text" name="product_group" class="form-control"
+             placeholder="예: 사무실 캐노피 일반 블랙">
+      {% endif %}
+      <p class="hint">발송파일 매칭에 쓰이는 키워드 — 나중에 상품 구성에서 카테고리로 묶습니다</p>
     </div>
   </div>
 
@@ -363,27 +343,6 @@ function removeGroup(btn) {
   var groups = document.getElementById('groups-container').querySelectorAll('.stock-group');
   if (groups.length <= 1) return;
   btn.closest('.stock-group').remove();
-}
-
-var TYPE_COLORS = {
-  '기본상품': {color:'#1e40af', bg:'#dbeafe'},
-  '거치방식': {color:'#065f46', bg:'#d1fae5'},
-  '추가옵션': {color:'#92400e', bg:'#fef3c7'},
-  '사은품':   {color:'#991b1b', bg:'#fee2e2'},
-};
-function setType(t) {
-  document.getElementById('productTypeInput').value = t;
-  Object.keys(TYPE_COLORS).forEach(function(k) {
-    var btn = document.getElementById('typebtn_' + k);
-    if (!btn) return;
-    if (k === t) {
-      btn.style.borderColor = TYPE_COLORS[k].color;
-      btn.style.background  = TYPE_COLORS[k].bg;
-    } else {
-      btn.style.borderColor = '#e5e7eb';
-      btn.style.background  = '#fff';
-    }
-  });
 }
 
 window.addEventListener('DOMContentLoaded', function(){

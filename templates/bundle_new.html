@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div>
+    <a href="{{ url_for('bundles') }}" style="color:#6b7280;font-size:13px;text-decoration:none">← 상품 구성 목록</a>
+    <h1 style="margin-top:4px">새 상품 구성</h1>
+    <p>개별 등록된 상품들을 카테고리로 묶어 조립합니다</p>
+  </div>
+</div>
+
+<form method="POST" action="{{ url_for('bundle_new') }}" id="bundleForm">
+
+  {# 1차 카테고리 #}
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <div style="background:#4f46e5;color:#fff;border-radius:8px;padding:4px 12px;font-size:13px;font-weight:700">1차</div>
+      <div class="card-title" style="margin:0">카테고리 이름</div>
+    </div>
+    <div class="row2">
+      <div class="form-group" style="margin:0">
+        <label>대표 이름 *</label>
+        <input type="text" name="name" class="form-control" placeholder="예: 사무실 캐노피" required
+               style="font-size:16px;font-weight:600">
+        <p class="hint">이 이름 아래에 모든 옵션이 묶입니다</p>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>스토어 상품명 (여러 개 가능)</label>
+        <div id="storeNamesContainer">
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <input type="text" name="store_names[]" class="form-control" placeholder="예: [사무실 캐노피] 일반형 블랙">
+            <button type="button" onclick="addStoreName()" class="btn btn-secondary btn-sm" style="white-space:nowrap">+ 추가</button>
+          </div>
+        </div>
+        <p class="hint">발송파일에서 이 상품들의 매출을 이 카테고리에 합산합니다</p>
+      </div>
+    </div>
+  </div>
+
+  {# 2차 이하 티어 #}
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div class="card-title" style="margin:0">하위 카테고리 구성</div>
+      <button type="button" onclick="addTier()" class="btn btn-secondary btn-sm">+ 차수 추가</button>
+    </div>
+    <p class="hint" style="margin-top:-8px;margin-bottom:16px">
+      2차부터 순서대로 옵션 → 추가옵션 → 사은품 순으로 구성하세요.<br>
+      필요한 차수만 추가하면 됩니다 (옵션 1개면 2차까지, 사은품 있으면 마지막에 추가)
+    </p>
+    <div id="tiersContainer"></div>
+    <div id="noTierMsg" style="text-align:center;color:#aaa;padding:30px;border:2px dashed #e5e7eb;border-radius:10px">
+      "+ 차수 추가" 버튼으로 2차 카테고리부터 구성하세요
+    </div>
+  </div>
+
+  <div class="flex">
+    <button type="submit" class="btn btn-primary" style="font-size:15px;padding:10px 28px">저장</button>
+    <a href="{{ url_for('bundles') }}" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+
+<script>
+var ALL_PRODUCTS = {{ prod_list_json | safe }};
+var tierCount = 0;
+
+function addStoreName() {
+  var container = document.getElementById('storeNamesContainer');
+  var div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px';
+  div.innerHTML =
+    '<input type="text" name="store_names[]" class="form-control" placeholder="스토어 상품명...">'
+    +'<button type="button" onclick="this.parentElement.remove()" class="btn btn-danger btn-sm" style="white-space:nowrap">삭제</button>';
+  container.appendChild(div);
+}
+
+function addTier() {
+  var order = tierCount + 2;
+  tierCount++;
+  var noMsg = document.getElementById('noTierMsg');
+  if (noMsg) noMsg.style.display = 'none';
+
+  var container = document.getElementById('tiersContainer');
+  var div = document.createElement('div');
+  div.className = 'tier-block';
+  div.style.cssText = 'border:1.5px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:12px';
+
+  var tierIdx = tierCount - 1;
+
+  // 라벨 제안 목록
+  var labelSuggestions = ['옵션1 (사이즈/색상)', '옵션2 (거치방식)', '옵션3', '추가옵션1', '추가옵션2', '사은품'];
+  var suggestHtml = labelSuggestions.map(function(s) {
+    return '<button type="button" onclick="setSuggest(this,\''+s.replace(/['"]/g,'')+'\')" '
+      +'style="padding:4px 10px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;font-size:12px;cursor:pointer;white-space:nowrap">'+s+'</button>';
+  }).join('');
+
+  div.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+    +'<div style="display:flex;align-items:center;gap:8px">'
+    +'<div style="background:#6b7280;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700">'+order+'차</div>'
+    +'<input type="text" name="tier_labels[]" class="form-control tier-label" required'
+    +' placeholder="이름 입력 또는 아래 제안 선택" style="max-width:280px">'
+    +'</div>'
+    +'<button type="button" onclick="removeTier(this)" class="btn btn-danger btn-sm">삭제</button>'
+    +'</div>'
+
+    +'<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">'
+    +'<span style="font-size:11px;color:#9ca3af;align-self:center">제안:</span>'
+    +suggestHtml
+    +'</div>'
+
+    +'<div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:8px">이 차수에 포함할 상품 선택</div>'
+    +'<input type="text" placeholder="상품 검색..." oninput="filterProds(this,'+tierIdx+')"'
+    +' style="width:100%;padding:7px 12px;border:1px solid #e5e7eb;border-radius:7px;font-size:13px;margin-bottom:8px;outline:none">'
+    +'<div class="prod-list" data-tidx="'+tierIdx+'" '
+    +'style="max-height:220px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:6px">'
+    +buildProdList(tierIdx)
+    +'</div>'
+    +'<input type="hidden" name="tier_products[]" class="tier-selected-json" value="[]">';
+
+  container.appendChild(div);
+  updateCheckboxEvents(tierIdx);
+}
+
+function setSuggest(btn, val) {
+  var block = btn.closest('.tier-block');
+  block.querySelector('.tier-label').value = val;
+}
+
+function buildProdList(tidx, filter) {
+  var html = '';
+  ALL_PRODUCTS.forEach(function(p, i) {
+    var label = p.name + (p.option ? ' / ' + p.option : '') + (p.group && p.group !== p.name ? '  [' + p.group + ']' : '');
+    if (filter && label.toLowerCase().indexOf(filter.toLowerCase()) < 0) return;
+    html += '<label style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:13px" '
+      +'onmouseover="this.style.background=\'#f9fafb\'" onmouseout="this.style.background=\'\'">'
+      +'<input type="checkbox" data-pid="'+p.id+'" data-tidx="'+tidx+'" onchange="updateSelected('+tidx+')">'
+      +'<span>'+label+'</span>'
+      +'</label>';
+  });
+  return html || '<div style="color:#aaa;padding:10px;text-align:center">상품 없음</div>';
+}
+
+function filterProds(input, tidx) {
+  var block = input.closest('.tier-block');
+  var listDiv = block.querySelector('.prod-list');
+  listDiv.innerHTML = buildProdList(tidx, input.value);
+  updateCheckboxEvents(tidx);
+}
+
+function updateCheckboxEvents(tidx) {
+  document.querySelectorAll('[data-tidx="'+tidx+'"]').forEach(function(cb) {
+    cb.onchange = function() { updateSelected(tidx); };
+  });
+}
+
+function updateSelected(tidx) {
+  var pids = [];
+  document.querySelectorAll('[data-tidx="'+tidx+'"]:checked').forEach(function(cb) {
+    pids.push(parseInt(cb.dataset.pid));
+  });
+  // find the hidden input in this tier block
+  var lists = document.querySelectorAll('.prod-list[data-tidx="'+tidx+'"]');
+  if (lists.length > 0) {
+    var block = lists[0].closest('.tier-block');
+    var hidden = block.querySelector('.tier-selected-json');
+    if (hidden) hidden.value = JSON.stringify(pids);
+  }
+}
+
+function removeTier(btn) {
+  btn.closest('.tier-block').remove();
+  if (document.querySelectorAll('.tier-block').length === 0) {
+    document.getElementById('noTierMsg').style.display = '';
+  }
+  // Renumber
+  var blocks = document.querySelectorAll('.tier-block');
+  blocks.forEach(function(b, i) {
+    var badge = b.querySelector('div[style*="background:#6b7280"]');
+    if (badge) badge.textContent = (i+2) + '차';
+  });
+}
+</script>
+{% endblock %}

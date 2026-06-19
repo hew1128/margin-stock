@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div>
+    <h1>상품 구성</h1>
+    <p>개별 등록된 상품들을 카테고리로 조립합니다</p>
+  </div>
+  <a href="{{ url_for('bundle_new') }}" class="btn btn-primary">+ 새 상품 구성</a>
+</div>
+
+{% if bundles %}
+{% for item in bundles %}
+<div class="card" style="margin-bottom:16px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div>
+      <div style="font-size:18px;font-weight:800;color:#111">{{ item.b.name }}</div>
+      {% if item.store_names %}
+      <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:5px">
+        {% for sn in item.store_names %}
+        <span style="font-size:11px;background:#f3f4f6;color:#374141;padding:2px 8px;border-radius:6px">{{ sn }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="badge {{ 'bg-green' if item.total_stock > 10 else ('bg-yellow' if item.total_stock > 0 else 'bg-red') }}"
+            style="font-size:13px;padding:5px 14px">재고 {{ item.total_stock }}개</span>
+      <a href="{{ url_for('bundle_detail', bid=item.b.id) }}" class="btn btn-secondary btn-sm">상세보기</a>
+      <form method="POST" action="{{ url_for('bundle_delete', bid=item.b.id) }}"
+            onsubmit="return confirm('삭제하시겠습니까?')" style="display:inline">
+        <button type="submit" class="btn btn-danger btn-sm">삭제</button>
+      </form>
+    </div>
+  </div>
+
+  {# 티어별 요약 #}
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <div style="background:#e0e7ff;color:#3730a3;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700">
+      1차. {{ item.b.name }}
+    </div>
+    {% for td in item.tiers %}
+    <div style="background:#f3f4f6;color:#374151;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px">
+      <span style="color:#9ca3af">{{ td.tier.tier_order }}차.</span>
+      {{ td.tier.tier_label }}
+      <span class="badge {{ 'bg-green' if td.stock > 0 else 'bg-red' }}" style="font-size:11px">{{ td.stock }}개</span>
+      <span style="color:#9ca3af;font-size:11px">{{ td.prods|length }}종</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="card" style="padding:60px;text-align:center;color:#aaa">
+  아직 구성된 상품이 없습니다.<br>
+  <a href="{{ url_for('bundle_new') }}" style="color:#4f46e5;margin-top:8px;display:inline-block">+ 새 상품 구성 만들기 →</a>
+</div>
+{% endif %}
+{% endblock %}

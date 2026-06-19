@@ -142,6 +142,26 @@ def init_db():
         c.execute("ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT '기본상품'")
     except Exception:
         pass
+    c.execute('''CREATE TABLE IF NOT EXISTS bundles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        store_names TEXT DEFAULT '[]',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS bundle_tiers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bundle_id INTEGER NOT NULL,
+        tier_order INTEGER NOT NULL,
+        tier_label TEXT NOT NULL,
+        FOREIGN KEY (bundle_id) REFERENCES bundles(id)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS bundle_tier_products (
+        tier_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        PRIMARY KEY (tier_id, product_id),
+        FOREIGN KEY (tier_id) REFERENCES bundle_tiers(id),
+        FOREIGN KEY (product_id) REFERENCES products(id)
+    )''')
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('exchange_rate', '190')")
     # stock_in 없는 기존 상품 → import_quantity로 초기 입고 자동 생성
     # 단, 재고 공유 그룹의 비-마스터 상품(stock_group_id != id)은 제외
@@ -1279,6 +1299,126 @@ def download_history():
     fname = f"입출고이력_{datetime.now().strftime('%Y%m%d')}.xlsx"
     return send_file(buf, as_attachment=True, download_name=fname,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ─── 상품 구성 (조립) ────────────────────────────────────────────────────────────
+
+@app.route('/bundles')
+def bundles():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM bundles ORDER BY id DESC").fetchall()
+    result = []
+    for b in rows:
+        tiers = conn.execute(
+            "SELECT * FROM bundle_tiers WHERE bundle_id=? ORDER BY tier_order", (b['id'],)).fetchall()
+        tier_data = []
+        total_stock = 0
+        for t in tiers:
+            prods = conn.execute("""
+                SELECT p.*, btp.tier_id FROM bundle_tier_products btp
+                JOIN products p ON btp.product_id = p.id
+                WHERE btp.tier_id=? AND p.is_active=1
+            """, (t['id'],)).fetchall()
+            stocks = [get_current_stock(p['id']) for p in prods]
+            tier_stock = sum(stocks)
+            if t['tier_order'] == 2:
+                total_stock = tier_stock
+            tier_data.append({'tier': t, 'prods': prods, 'stock': tier_stock})
+        store_names = json.loads(b['store_names'] or '[]')
+        result.append({'b': b, 'tiers': tier_data, 'total_stock': total_stock,
+                       'store_names': store_names})
+    conn.close()
+    return render_template('bundles.html', bundles=result)
+
+
+@app.route('/bundles/new', methods=['GET', 'POST'])
+def bundle_new():
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        store_names = [s.strip() for s in request.form.getlist('store_names[]') if s.strip()]
+        tier_labels  = request.form.getlist('tier_labels[]')
+        tier_products = request.form.getlist('tier_products[]')  # JSON arrays per tier
+
+        if not name:
+            flash('1차 카테고리 이름을 입력해주세요.')
+            return redirect(request.url)
+
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("INSERT INTO bundles (name, store_names) VALUES (?,?)",
+                  (name, json.dumps(store_names, ensure_ascii=False)))
+        bid = c.lastrowid
+
+        for i, label in enumerate(tier_labels):
+            if not label.strip():
+                continue
+            c.execute("INSERT INTO bundle_tiers (bundle_id, tier_order, tier_label) VALUES (?,?,?)",
+                      (bid, i + 2, label.strip()))
+            tid = c.lastrowid
+            try:
+                pids = json.loads(tier_products[i]) if i < len(tier_products) else []
+            except Exception:
+                pids = []
+            for pid in pids:
+                c.execute("INSERT OR IGNORE INTO bundle_tier_products (tier_id, product_id) VALUES (?,?)",
+                          (tid, int(pid)))
+        conn.commit()
+        conn.close()
+        flash(f'상품 구성 "{name}" 이 저장되었습니다.')
+        return redirect(url_for('bundles'))
+
+    prods = get_all_products_with_keywords()
+    prod_list = [{'id': p['id'], 'name': p['name'],
+                  'option': p['option_name'] or '', 'group': p['product_group'] or ''}
+                 for p in prods]
+    return render_template('bundle_new.html',
+                           prod_list_json=json.dumps(prod_list, ensure_ascii=False))
+
+
+@app.route('/bundles/<int:bid>/delete', methods=['POST'])
+def bundle_delete(bid):
+    conn = get_db()
+    tiers = conn.execute("SELECT id FROM bundle_tiers WHERE bundle_id=?", (bid,)).fetchall()
+    for t in tiers:
+        conn.execute("DELETE FROM bundle_tier_products WHERE tier_id=?", (t['id'],))
+    conn.execute("DELETE FROM bundle_tiers WHERE bundle_id=?", (bid,))
+    conn.execute("DELETE FROM bundles WHERE id=?", (bid,))
+    conn.commit()
+    conn.close()
+    flash('상품 구성이 삭제되었습니다.')
+    return redirect(url_for('bundles'))
+
+
+@app.route('/bundles/<int:bid>')
+def bundle_detail(bid):
+    conn = get_db()
+    b = conn.execute("SELECT * FROM bundles WHERE id=?", (bid,)).fetchone()
+    if not b:
+        conn.close()
+        flash('존재하지 않는 상품 구성입니다.')
+        return redirect(url_for('bundles'))
+
+    tiers = conn.execute(
+        "SELECT * FROM bundle_tiers WHERE bundle_id=? ORDER BY tier_order", (bid,)).fetchall()
+    _, freebie_costs = load_freebie_data()
+    tier_data = []
+    for t in tiers:
+        prods = conn.execute("""
+            SELECT p.* FROM bundle_tier_products btp
+            JOIN products p ON btp.product_id = p.id
+            WHERE btp.tier_id=? AND p.is_active=1
+        """, (t['id'],)).fetchall()
+        items = []
+        for p in prods:
+            pg = (p['product_group'] or '').strip() or p['name']
+            fc = freebie_costs.get(pg, 0)
+            items.append({'p': p, 'm': calculate_margin(p, freebie_cost=fc),
+                          's': get_current_stock(p['id'])})
+        tier_data.append({'tier': t, 'items': items})
+
+    store_names = json.loads(b['store_names'] or '[]')
+    conn.close()
+    return render_template('bundle_detail.html', b=b, tiers=tier_data, store_names=store_names)
 
 
 @app.route('/backup-db')
