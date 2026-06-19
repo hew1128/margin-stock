@@ -133,10 +133,12 @@ def get_setting(key, default=None):
 
 
 def calculate_margin(product, exchange_rate=None):
-    method = product.get('payment_method', '위안화') or '위안화'
+    keys = product.keys() if hasattr(product, 'keys') else product
+    method = (product['payment_method'] if 'payment_method' in keys else None) or '위안화'
+    krw_price = (product['purchase_price_krw'] if 'purchase_price_krw' in keys else 0) or 0
     sale = product['sale_price']
-    if method in ('원화', '카드') and (product.get('purchase_price_krw') or 0) > 0:
-        purchase_krw = product['purchase_price_krw']
+    if method in ('원화', '카드') and krw_price > 0:
+        purchase_krw = krw_price
     else:
         rate = float(exchange_rate or product['exchange_rate'] or 190)
         purchase_krw = product['purchase_price_cny'] * rate

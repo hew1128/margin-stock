@@ -153,36 +153,17 @@
         </div>
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
-          {% if pm in ('원화', '카드') %}
-          {% set cost_vals = [
-            ('판매가',           '{:,}'.format(item.p.sale_price) + '원'),
-            ('개당 사입가',      '{:,}'.format(item.p.purchase_price_krw or 0) + '원'),
-            ('결제 방식',        pm + (' — ' + (item.p.payment_card_info or '') if pm == '카드' else '')),
-            ('총사입가',         '{:,.1f}'.format(item.m.purchase_krw) + '원'),
-            ('입고 개수',        '{:,}'.format(item.p.import_quantity) + '개'),
-            ('통관비 총합',      '{:,}'.format(item.m.customs_total) + '원'),
-            ('개당 통관비',      '{:,.1f}'.format(item.m.customs_per_unit) + '원'),
-            ('수수료율',         '{}%'.format(item.p.naver_fee_rate)),
-            ('수수료 금액',      '{:,.1f}'.format(item.m.naver_fee) + '원'),
-            ('국내 택배비',      '{:,}'.format(item.p.domestic_shipping) + '원'),
-            ('일반세금 (10%)',   '{:,.1f}'.format(item.m.tax_amount) + '원'),
+          {% for label, val in [
+            ('판매가',      '{:,}'.format(item.p.sale_price) + '원'),
+            ('총사입가',    '{:,.1f}'.format(item.m.purchase_krw) + '원'),
+            ('입고 개수',   '{:,}'.format(item.p.import_quantity) + '개'),
+            ('통관비 총합', '{:,}'.format(item.m.customs_total) + '원'),
+            ('개당 통관비', '{:,.1f}'.format(item.m.customs_per_unit) + '원'),
+            ('수수료율',    '{}%'.format(item.p.naver_fee_rate)),
+            ('수수료 금액', '{:,.1f}'.format(item.m.naver_fee) + '원'),
+            ('국내 택배비', '{:,}'.format(item.p.domestic_shipping) + '원'),
+            ('일반세금',    '{:,.1f}'.format(item.m.tax_amount) + '원'),
           ] %}
-          {% else %}
-          {% set cost_vals = [
-            ('판매가',           '{:,}'.format(item.p.sale_price) + '원'),
-            ('사입가',           '{}위안'.format(item.p.purchase_price_cny)),
-            ('구입 환율',        '{}원'.format(item.p.exchange_rate)),
-            ('총사입가',         '{:,.1f}'.format(item.m.purchase_krw) + '원'),
-            ('입고 개수',        '{:,}'.format(item.p.import_quantity) + '개'),
-            ('통관비 총합',      '{:,}'.format(item.m.customs_total) + '원'),
-            ('개당 통관비',      '{:,.1f}'.format(item.m.customs_per_unit) + '원'),
-            ('수수료율',         '{}%'.format(item.p.naver_fee_rate)),
-            ('수수료 금액',      '{:,.1f}'.format(item.m.naver_fee) + '원'),
-            ('국내 택배비',      '{:,}'.format(item.p.domestic_shipping) + '원'),
-            ('일반세금 (10%)',   '{:,.1f}'.format(item.m.tax_amount) + '원'),
-          ] %}
-          {% endif %}
-          {% for label, val in cost_vals %}
           <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:11px 14px">
             <div style="font-size:11px;color:#9ca3af;margin-bottom:5px">{{ label }}</div>
             <div style="font-size:14px;font-weight:600;color:#111">{{ val }}</div>
