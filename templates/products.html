@@ -12,6 +12,20 @@
   </div>
 </div>
 
+<script>
+var G_NAMES = {{ group_names | tojson }};
+async function moveGroup(name, dir) {
+  var idx = G_NAMES.indexOf(name);
+  var ni  = idx + dir;
+  if (ni < 0 || ni >= G_NAMES.length) return;
+  var arr = G_NAMES.slice();
+  arr[idx] = G_NAMES[ni]; arr[ni] = G_NAMES[idx];
+  await fetch('/group-order', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({order: arr})});
+  location.reload();
+}
+</script>
+
 {% if grouped %}
 {% for name, opt_list, group_stock in grouped %}
 {% set gi = loop.index %}
@@ -29,7 +43,11 @@
       <span style="font-size:16px;font-weight:700">{{ name }}</span>
       <span class="badge bg-gray" style="font-size:11px">{{ opt_list|length }}옵션</span>
     </div>
-    <div style="display:flex;align-items:center;gap:8px">
+    <div style="display:flex;align-items:center;gap:6px" onclick="event.stopPropagation()">
+      <button onclick="moveGroup('{{ name }}', -1)"
+              title="위로" style="width:26px;height:26px;border:1px solid #e5e7eb;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;color:#9ca3af;line-height:1;padding:0">▲</button>
+      <button onclick="moveGroup('{{ name }}', 1)"
+              title="아래로" style="width:26px;height:26px;border:1px solid #e5e7eb;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;color:#9ca3af;line-height:1;padding:0">▼</button>
       <a href="{{ url_for('product_new', group=name) }}"
          class="btn btn-secondary btn-sm" style="font-size:12px;padding:4px 10px">+ 배치 추가</a>
       <span class="badge {{ 'bg-green' if group_stock > 10 else ('bg-yellow' if group_stock > 0 else 'bg-red') }}"

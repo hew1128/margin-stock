@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify
 import sqlite3
 import os
 import re
@@ -132,6 +132,35 @@ def get_setting(key, default=None):
     return row['value'] if row else default
 
 
+def sort_groups_by_setting(group_keys, max_id_map=None):
+    """저장된 그룹 순서 우선 적용, 없는 그룹은 뒤에 기본 순서"""
+    stored = get_setting('group_order')
+    order_map = {}
+    if stored:
+        try:
+            for i, name in enumerate(json.loads(stored)):
+                order_map[name] = i
+        except Exception:
+            pass
+    def key_fn(g):
+        if g in order_map:
+            return (0, order_map[g])
+        return (1, -(max_id_map.get(g, 0) if max_id_map else 0))
+    return sorted(group_keys, key=key_fn)
+
+
+@app.route('/group-order', methods=['POST'])
+def update_group_order():
+    data = request.get_json()
+    order = data.get('order', [])
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('group_order', ?)",
+                 (json.dumps(order, ensure_ascii=False),))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
 def calculate_margin(product, exchange_rate=None):
     keys = product.keys() if hasattr(product, 'keys') else product
     method = (product['payment_method'] if 'payment_method' in keys else None) or '위안화'
@@ -225,9 +254,9 @@ def dashboard():
         if pid > group_max_id[gkey]:
             group_max_id[gkey] = pid
 
-    group_order = sorted(group_map.keys(), key=lambda g: group_max_id[g], reverse=True)
+    gkeys = sort_groups_by_setting(list(group_map.keys()), group_max_id)
     grouped = []
-    for gkey in group_order:
+    for gkey in gkeys:
         od = group_map[gkey]
         key_order = sorted(od.keys(), key=lambda k: max(i['p']['id'] for i in od[k]), reverse=True)
         opt_rows = []
@@ -242,7 +271,7 @@ def dashboard():
                     total_g += i['s']
             opt_rows.append({'opt': tkey[1], 'listing': tkey[0], 'latest': its[0], 'total_s': opt_s})
         grouped.append((gkey, opt_rows, total_g))
-    return render_template('dashboard.html', grouped=grouped)
+    return render_template('dashboard.html', grouped=grouped, group_names=gkeys)
 
 
 # ─── 상품 관리 ──────────────────────────────────────────────────────────────────
@@ -271,13 +300,12 @@ def products():
         if pid > group_max_id[gkey]:
             group_max_id[gkey] = pid
 
-    group_order = sorted(group_map.keys(), key=lambda g: group_max_id[g], reverse=True)
+    gkeys = sort_groups_by_setting(list(group_map.keys()), group_max_id)
     grouped = []
-    for gkey in group_order:
+    for gkey in gkeys:
         od = group_map[gkey]
         key_order = sorted(od.keys(), key=lambda k: max(i['p']['id'] for i in od[k]), reverse=True)
         opt_list = [{'opt': k[1], 'listing': k[0], 'batches': od[k]} for k in key_order]
-        # 공유 재고 그룹 중복 제거: 같은 stock_group_id는 한 번만 합산
         seen_sgids = set()
         group_stock = 0
         for row in opt_list:
@@ -286,7 +314,7 @@ def products():
                     seen_sgids.add(item['sgid'])
                     group_stock += item['s']
         grouped.append((gkey, opt_list, group_stock))
-    return render_template('products.html', grouped=grouped)
+    return render_template('products.html', grouped=grouped, group_names=gkeys)
 
 
 @app.route('/products/new', methods=['GET', 'POST'])
@@ -659,21 +687,23 @@ def history():
 
     conn.close()
 
-    # 상품명으로 그룹핑 (최신순)
-    name_groups = {}
-    name_max_id = {}
+    # product_group 기준으로 그룹핑 (대시보드/상품관리와 동일)
+    g_map = {}
+    g_max_id = {}
     for item in result:
+        pg   = (item['p']['product_group'] or '').strip()
         name = item['p']['name']
+        gkey = pg if pg else name
         pid  = item['p']['id']
-        if name not in name_groups:
-            name_groups[name] = []
-            name_max_id[name] = 0
-        name_groups[name].append(item)
-        if pid > name_max_id[name]:
-            name_max_id[name] = pid
-    name_order = sorted(name_groups.keys(), key=lambda n: name_max_id[n], reverse=True)
-    grouped = [(name, name_groups[name]) for name in name_order]
-    return render_template('history.html', grouped=grouped)
+        if gkey not in g_map:
+            g_map[gkey] = []
+            g_max_id[gkey] = 0
+        g_map[gkey].append(item)
+        if pid > g_max_id[gkey]:
+            g_max_id[gkey] = pid
+    gkeys = sort_groups_by_setting(list(g_map.keys()), g_max_id)
+    grouped = [(gkey, g_map[gkey]) for gkey in gkeys]
+    return render_template('history.html', grouped=grouped, group_names=gkeys)
 
 
 # ─── 분석 ───────────────────────────────────────────────────────────────────────
@@ -709,11 +739,16 @@ def analytics():
         if row['date'] > group_max_date.get(grp, ''):
             group_max_date[grp] = row['date']
 
-    group_order = sorted(data.keys(), key=lambda g: group_max_date.get(g, ''), reverse=True)
-    ordered = {g: data[g] for g in group_order}
+    # max_date를 숫자로 쓰기 위해 group_max_id가 없으므로 날짜역순을 fallback으로 사용
+    def _date_to_pseudo_id(g):
+        d = group_max_date.get(g, '')
+        return int(d.replace('-', '')) if d else 0
+    fallback_map = {g: _date_to_pseudo_id(g) for g in data}
+    gkeys = sort_groups_by_setting(list(data.keys()), fallback_map)
+    ordered = {g: data[g] for g in gkeys}
     return render_template('analytics.html',
                            chart_data=json.dumps(ordered, ensure_ascii=False),
-                           group_names=group_order)
+                           group_names=gkeys)
 
 
 # ─── 엑셀 다운로드 ──────────────────────────────────────────────────────────────

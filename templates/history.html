@@ -5,6 +5,20 @@
   <a href="/download/history" class="btn btn-secondary">📥 엑셀 다운로드</a>
 </div>
 
+<script>
+var G_NAMES = {{ group_names | tojson }};
+async function moveGroup(name, dir) {
+  var idx = G_NAMES.indexOf(name);
+  var ni  = idx + dir;
+  if (ni < 0 || ni >= G_NAMES.length) return;
+  var arr = G_NAMES.slice();
+  arr[idx] = G_NAMES[ni]; arr[ni] = G_NAMES[idx];
+  await fetch('/group-order', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({order: arr})});
+  location.reload();
+}
+</script>
+
 {% if grouped %}
 {% for name, items in grouped %}
 {% set ns = namespace(ti=0, to=0) %}
@@ -26,6 +40,12 @@
       <span id="hga{{gi}}" style="font-size:11px;color:#bbb;transition:transform .2s">▶</span>
       <span style="font-size:16px;font-weight:700">{{ name }}</span>
       <span class="badge bg-gray" style="font-size:11px">{{ items|length }}배치</span>
+      <div style="display:flex;gap:2px" onclick="event.stopPropagation()">
+        <button onclick="moveGroup('{{ name }}', -1)" title="위로"
+                style="width:22px;height:22px;border:1px solid #e5e7eb;background:#fff;border-radius:4px;cursor:pointer;font-size:11px;color:#9ca3af;line-height:1;padding:0">▲</button>
+        <button onclick="moveGroup('{{ name }}', 1)" title="아래로"
+                style="width:22px;height:22px;border:1px solid #e5e7eb;background:#fff;border-radius:4px;cursor:pointer;font-size:11px;color:#9ca3af;line-height:1;padding:0">▼</button>
+      </div>
     </div>
     <div style="display:flex;align-items:center;gap:16px;font-size:13px">
       <span style="color:#059669;font-weight:600">입고 {{ ns.ti }}개</span>

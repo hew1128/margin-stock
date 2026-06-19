@@ -4,21 +4,41 @@
   <div><h1>분석</h1><p>스토어 상품명별 · 옵션별 판매 추이</p></div>
 </div>
 
+<script>
+var G_NAMES = {{ group_names | tojson }};
+async function moveGroup(name, dir) {
+  var idx = G_NAMES.indexOf(name);
+  var ni  = idx + dir;
+  if (ni < 0 || ni >= G_NAMES.length) return;
+  var arr = G_NAMES.slice();
+  arr[idx] = G_NAMES[ni]; arr[ni] = G_NAMES[idx];
+  await fetch('/group-order', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({order: arr})});
+  location.reload();
+}
+</script>
+
 {% if group_names %}
 {% for gname in group_names %}
 {% set gi = loop.index %}
 <div style="margin-bottom:12px">
 
-  <div onclick="togGroup({{gi}},{{gname|tojson}})"
-       style="display:flex;align-items:center;justify-content:space-between;
+  <div style="display:flex;align-items:center;justify-content:space-between;
               padding:14px 20px;background:#fff;border:1px solid #e5e7eb;
-              border-radius:10px;cursor:pointer;user-select:none"
-       onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='#fff'">
-    <div style="display:flex;align-items:center;gap:10px">
+              border-radius:10px;user-select:none">
+    <div onclick="togGroup({{gi}},{{gname|tojson}})"
+         style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer"
+         onmouseover="this.parentElement.style.background='#f9fafb'" onmouseout="this.parentElement.style.background='#fff'">
       <span id="garr{{gi}}" style="font-size:11px;color:#bbb;transition:transform .2s">▶</span>
       <span style="font-size:16px;font-weight:700">{{ gname }}</span>
     </div>
-    <span style="font-size:12px;color:#9ca3af">클릭하여 추이 보기</span>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button onclick="moveGroup({{ gname|tojson }}, -1)" title="위로"
+              style="width:26px;height:26px;border:1px solid #e5e7eb;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;color:#9ca3af;line-height:1;padding:0">▲</button>
+      <button onclick="moveGroup({{ gname|tojson }}, 1)" title="아래로"
+              style="width:26px;height:26px;border:1px solid #e5e7eb;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;color:#9ca3af;line-height:1;padding:0">▼</button>
+      <span style="font-size:12px;color:#9ca3af">클릭하여 추이 보기</span>
+    </div>
   </div>
 
   <div id="gbody{{gi}}" style="display:none;background:#fff;border:1px solid #e5e7eb;
