@@ -687,6 +687,9 @@ def register():
 
     # GET
     prefill = session.pop('reg_prefill', {})
+    # ?group=그룹명 으로 진입 시 그룹명 자동 입력
+    if not prefill.get('group_name') and request.args.get('group'):
+        prefill['group_name'] = request.args.get('group')
     conn = get_db()
     existing_groups = [r[0] for r in conn.execute(
         "SELECT DISTINCT product_group FROM products WHERE is_active=1 AND product_group IS NOT NULL ORDER BY product_group"
