@@ -47,9 +47,7 @@ async function moveGroup(name, dir) {
               title="위로" style="width:26px;height:26px;border:1px solid #e5e7eb;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;color:#9ca3af;line-height:1;padding:0">▲</button>
       <button onclick="moveGroup('{{ name }}', 1)"
               title="아래로" style="width:26px;height:26px;border:1px solid #e5e7eb;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;color:#9ca3af;line-height:1;padding:0">▼</button>
-      <a href="{{ url_for('register') }}?group={{ name | urlencode }}"
-         class="btn btn-secondary btn-sm" style="font-size:12px;padding:4px 10px">+ SKU 추가</a>
-      <span class="badge {{ 'bg-green' if group_stock > 10 else ('bg-yellow' if group_stock > 0 else 'bg-red') }}"
+<span class="badge {{ 'bg-green' if group_stock > 10 else ('bg-yellow' if group_stock > 0 else 'bg-red') }}"
             style="font-size:13px;padding:5px 12px">총재고 {{ group_stock }}개</span>
     </div>
   </div>
