@@ -8,6 +8,9 @@
   <a href="/products" class="btn btn-secondary">← 상품 관리</a>
 </div>
 
+{% set ptype = p.get('product_type','') %}
+{% set pmethod = p.get('payment_method','위안화') %}
+
 <form method="POST" action="/register">
 
   {# ── 그룹명 + 차수 타입 ── #}
@@ -17,7 +20,7 @@
       <div class="form-group" style="margin:0">
         <label>상품 그룹명 (1차 카테고리) <span style="color:#ef4444">*</span></label>
         <input list="groupList" name="group_name" id="groupName" class="form-control" required
-               value="{{ prefill_group }}"
+               value="{{ p.get('group_name','') }}"
                placeholder="예: 사무실캐노피" style="font-size:15px;font-weight:600" autocomplete="off">
         <datalist id="groupList">
           {% for g in existing_groups %}
@@ -40,12 +43,13 @@
             ('gift','사은품','#ef4444'),
           ] %}
           {% for val, lbl, color in types %}
+          {% set active = (ptype == val) %}
           <label style="cursor:pointer;user-select:none">
             <input type="radio" name="product_type" value="{{ val }}" style="display:none"
-                   {% if prefill_type == val %}checked{% endif %}
+                   {% if active %}checked{% endif %}
                    onchange="selectType('{{ val }}','{{ color }}')">
             <span id="typebtn_{{ val }}"
-                  style="display:inline-block;padding:7px 16px;border:2px solid {% if prefill_type == val %}{{ color }}{% else %}#e5e7eb{% endif %};border-radius:8px;font-size:13px;font-weight:600;background:{% if prefill_type == val %}{{ color }}{% else %}#fff{% endif %};color:{% if prefill_type == val %}#fff{% else %}#374151{% endif %};transition:all .15s">
+                  style="display:inline-block;padding:7px 16px;border:2px solid {{ color if active else '#e5e7eb' }};border-radius:8px;font-size:13px;font-weight:600;background:{{ color if active else '#fff' }};color:{{ '#fff' if active else '#374151' }};transition:all .15s">
               {{ lbl }}
             </span>
           </label>
@@ -62,7 +66,8 @@
       <div class="form-group" style="margin:0">
         <label>옵션명 <span style="color:#ef4444">*</span></label>
         <input type="text" name="option_name" class="form-control" required
-               placeholder="예: 일반 블랙 / 나사형 / 집게형 단품" style="font-size:15px">
+               placeholder="예: 일반 블랙 / 나사형 / 집게형 단품" style="font-size:15px"
+               autofocus>
       </div>
       <div class="form-group" style="margin:0">
         <label>판매가 (원) <span style="color:#ef4444">*</span></label>
@@ -79,7 +84,8 @@
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
       <div class="form-group" style="margin:0">
         <label>사입일</label>
-        <input type="date" name="purchase_date" class="form-control" id="purchaseDate">
+        <input type="date" name="purchase_date" class="form-control" id="purchaseDate"
+               value="{{ p.get('purchase_date','') }}">
       </div>
       <div class="form-group" style="margin:0">
         <label>수량 (개)</label>
@@ -88,31 +94,35 @@
       </div>
       <div class="form-group" style="margin:0">
         <label>결제방식</label>
-        <select name="payment_method" class="form-control" onchange="togglePayMethod(this)">
-          <option value="위안화">위안화</option>
-          <option value="원화">원화</option>
-          <option value="카드">카드</option>
+        <select name="payment_method" class="form-control" id="payMethod" onchange="togglePayMethod(this)">
+          <option value="위안화" {% if pmethod=='위안화' %}selected{% endif %}>위안화</option>
+          <option value="원화"   {% if pmethod=='원화'   %}selected{% endif %}>원화</option>
+          <option value="카드"   {% if pmethod=='카드'   %}selected{% endif %}>카드</option>
         </select>
       </div>
-      <div class="form-group" style="margin:0" id="exchWrap">
+      <div class="form-group" style="margin:0" id="exchWrap"
+           style="opacity:{{ '1' if pmethod=='위안화' else '0.35' }}">
         <label>환율 (위안→원)</label>
-        <input type="number" name="exchange_rate" class="form-control" value="190" step="0.01">
+        <input type="number" name="exchange_rate" class="form-control" step="0.01"
+               value="{{ p.get('exchange_rate','190') }}">
       </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group" style="margin:0">
-        <label id="buyLabel">사입가 (위안)</label>
+        <label id="buyLabel">사입가 ({{ '위안' if pmethod=='위안화' else '원' }})</label>
         <input type="number" name="purchase_price" class="form-control" value="0" step="0.01">
       </div>
-      <div id="cardWrap" style="display:none">
+      <div id="cardWrap" style="display:{{ '' if pmethod=='카드' else 'none' }}">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <div class="form-group" style="margin:0">
             <label>카드사</label>
-            <input type="text" name="card_company" class="form-control" placeholder="신한, 삼성...">
+            <input type="text" name="card_company" class="form-control" placeholder="신한, 삼성..."
+                   value="{{ p.get('card_company','') }}">
           </div>
           <div class="form-group" style="margin:0">
             <label>카드번호 뒤 4자리</label>
             <input type="text" name="card_last4" class="form-control" maxlength="4" placeholder="1234"
+                   value="{{ p.get('card_last4','') }}"
                    oninput="this.value=this.value.replace(/[^0-9]/g,'')">
           </div>
         </div>
@@ -126,36 +136,51 @@
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
       <div class="form-group" style="margin:0">
         <label>관세 합계 (원)</label>
-        <input type="number" name="customs_total" class="form-control" value="0">
+        <input type="number" name="customs_total" class="form-control" value="{{ p.get('customs_total','0') }}">
       </div>
       <div class="form-group" style="margin:0">
         <label>운송비 합계 (원)</label>
-        <input type="number" name="shipping_total" class="form-control" value="0">
+        <input type="number" name="shipping_total" class="form-control" value="{{ p.get('shipping_total','0') }}">
       </div>
       <div class="form-group" style="margin:0">
         <label>용달 합계 (원)</label>
-        <input type="number" name="yongdal_total" class="form-control" value="0">
+        <input type="number" name="yongdal_total" class="form-control" value="{{ p.get('yongdal_total','0') }}">
       </div>
       <div class="form-group" style="margin:0">
         <label>네이버 수수료 (%)</label>
-        <input type="number" name="naver_fee_rate" class="form-control" value="2.0" step="0.01">
+        <input type="number" name="naver_fee_rate" class="form-control" step="0.01"
+               value="{{ p.get('naver_fee_rate','2.0') }}">
       </div>
       <div class="form-group" style="margin:0">
         <label>국내 택배비 (원)</label>
-        <input type="number" name="domestic_shipping" class="form-control" value="2500">
+        <input type="number" name="domestic_shipping" class="form-control"
+               value="{{ p.get('domestic_shipping','2500') }}">
       </div>
     </div>
   </div>
 
   {# ── 스토어 상품명 키워드 ── #}
   <div class="card" style="margin-bottom:20px">
-    <div class="card-title">스토어 상품명 <span style="font-size:12px;font-weight:400;color:#9ca3af">발송파일 G열 매칭용 — 없으면 생략 가능</span></div>
+    <div class="card-title">스토어 상품명 <span style="font-size:12px;font-weight:400;color:#9ca3af">발송파일 G열 매칭용</span></div>
     <div id="keywordRows">
+      {% if p.get('store_names') %}
+        {% for sn in p['store_names'] %}
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <input type="text" name="store_names[]" class="form-control" value="{{ sn }}">
+          <button type="button" onclick="this.parentElement.remove()" class="btn btn-danger btn-sm">삭제</button>
+        </div>
+        {% endfor %}
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <input type="text" name="store_names[]" class="form-control" placeholder="추가 스토어 상품명...">
+          <button type="button" onclick="addKeyword()" class="btn btn-secondary btn-sm" style="white-space:nowrap">+ 추가</button>
+        </div>
+      {% else %}
       <div style="display:flex;gap:6px;margin-bottom:6px">
         <input type="text" name="store_names[]" class="form-control"
                placeholder="예: [사무실캐노피] 그늘막 캐노피 사무실 일반형">
         <button type="button" onclick="addKeyword()" class="btn btn-secondary btn-sm" style="white-space:nowrap">+ 추가</button>
       </div>
+      {% endif %}
     </div>
     <p class="hint">발송파일에서 이 키워드로 상품을 찾아 재고를 자동 차감합니다</p>
   </div>
@@ -163,18 +188,20 @@
   <div style="display:flex;gap:10px;align-items:center">
     <button type="submit" class="btn btn-primary" style="font-size:15px;padding:10px 32px">등록</button>
     <button type="submit" name="continue" value="1" class="btn btn-success"
-            style="font-size:15px;padding:10px 24px" title="등록 후 같은 그룹으로 계속 등록">
+            style="font-size:15px;padding:10px 24px">
       등록 후 계속 →
     </button>
     <a href="/products" class="btn btn-secondary">취소</a>
-    <span style="font-size:12px;color:#9ca3af;margin-left:4px">
-      "등록 후 계속" — 같은 그룹명·타입 유지한 채로 다음 상품 등록
-    </span>
+    <span style="font-size:12px;color:#9ca3af;margin-left:4px">공통 정보 유지 · 옵션명·판매가·사입가만 바꿔서 계속 등록</span>
   </div>
 </form>
 
 <script>
-document.getElementById('purchaseDate').value = new Date().toISOString().slice(0,10);
+// 사입일 기본값: 이전 값 없으면 오늘
+(function() {
+  var el = document.getElementById('purchaseDate');
+  if (!el.value) el.value = new Date().toISOString().slice(0,10);
+})();
 
 var TYPE_COLORS = {
   opt1:'#3b82f6', opt2:'#8b5cf6', opt3:'#06b6d4',
@@ -186,13 +213,13 @@ function selectType(val, color) {
     var btn = document.getElementById('typebtn_' + k);
     if (!btn) return;
     if (k === val) {
-      btn.style.border      = '2px solid ' + color;
-      btn.style.background  = color;
-      btn.style.color       = '#fff';
+      btn.style.border     = '2px solid ' + color;
+      btn.style.background = color;
+      btn.style.color      = '#fff';
     } else {
-      btn.style.border      = '2px solid #e5e7eb';
-      btn.style.background  = '#fff';
-      btn.style.color       = '#374151';
+      btn.style.border     = '2px solid #e5e7eb';
+      btn.style.background = '#fff';
+      btn.style.color      = '#374151';
     }
   });
 }
@@ -204,6 +231,12 @@ function togglePayMethod(sel) {
   document.getElementById('buyLabel').textContent   = isCny ? '사입가 (위안)' : '사입가 (원)';
   document.getElementById('cardWrap').style.display = isCard ? '' : 'none';
 }
+
+// 페이지 로드 시 결제방식 상태 적용
+(function() {
+  var sel = document.getElementById('payMethod');
+  if (sel) togglePayMethod(sel);
+})();
 
 function addKeyword() {
   var div = document.createElement('div');

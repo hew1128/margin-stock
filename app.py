@@ -666,10 +666,27 @@ def register():
         flash(f'[{group_name}] {tier_label} "{option_name}" 등록 완료')
 
         if request.form.get('continue'):
-            return redirect(url_for('register', group=group_name, type=product_type))
+            session['reg_prefill'] = {
+                'group_name':       group_name,
+                'product_type':     product_type,
+                'purchase_date':    purchase_date,
+                'exchange_rate':    str(exchange_rate),
+                'payment_method':   payment_method,
+                'card_company':     card_company,
+                'card_last4':       card_last4,
+                'customs_total':    str(customs_total),
+                'shipping_total':   str(shipping_total),
+                'yongdal_total':    str(yongdal_total),
+                'naver_fee_rate':   str(naver_fee_rate),
+                'domestic_shipping':str(domestic_ship),
+                'store_names':      store_names,
+            }
+            return redirect(url_for('register'))
+        session.pop('reg_prefill', None)
         return redirect(url_for('products'))
 
     # GET
+    prefill = session.pop('reg_prefill', {})
     conn = get_db()
     existing_groups = [r[0] for r in conn.execute(
         "SELECT DISTINCT product_group FROM products WHERE is_active=1 AND product_group IS NOT NULL ORDER BY product_group"
@@ -677,8 +694,7 @@ def register():
     conn.close()
     return render_template('product_register.html',
                            existing_groups=existing_groups,
-                           prefill_group=request.args.get('group', ''),
-                           prefill_type=request.args.get('type', ''))
+                           p=prefill)
 
 
 @app.route('/products/<int:pid>/edit', methods=['GET', 'POST'])
