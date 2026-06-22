@@ -791,6 +791,10 @@ def pool_detail(pool_id):
     current_stock = get_pool_stock(pool_id, conn)
     fifo_cost     = get_pool_fifo_cost(pool_id, conn)
 
+    total_pool_qty = conn.execute(
+        "SELECT COALESCE(SUM(quantity),0) as q FROM pool_stock_in WHERE pool_id=?", (pool_id,)
+    ).fetchone()['q'] or 1
+
     TYPE_LABELS = {
         'opt1':'판매 상품', 'add1':'추가옵션1', 'add2':'추가옵션2',
         'add3':'추가옵션3', 'gift':'사은품'
@@ -809,7 +813,7 @@ def pool_detail(pool_id):
                 'customs_total':      pool['customs_total'],
                 'shipping_total':     pool['shipping_total'],
                 'yongdal_total':      pool['yongdal_total'],
-                'import_quantity':    1,
+                'import_quantity':    total_pool_qty,
                 'naver_fee_rate':     pool['naver_fee_rate'],
                 'domestic_shipping':  pool['domestic_shipping'],
             }
@@ -871,7 +875,6 @@ def pool_option_add(pool_id):
     option_name  = request.form.get('option_name', '').strip()
     sale_price   = int(request.form.get('sale_price') or 0)
     product_type = request.form.get('product_type', 'opt1')
-    keywords     = [k.strip() for k in request.form.getlist('keywords[]') if k.strip()]
 
     if not option_name:
         flash('옵션명을 입력해주세요.')
@@ -882,9 +885,6 @@ def pool_option_add(pool_id):
         (pool_id, store_name, option_name, sale_price, product_type)
         VALUES (?,?,?,?,?)""",
         (pool_id, store_name, option_name, sale_price, product_type))
-    opt_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
-    for kw in keywords:
-        conn.execute("INSERT INTO option_keywords (option_id, keyword) VALUES (?,?)", (opt_id, kw))
     conn.commit()
     conn.close()
     flash(f'옵션 "{option_name}" 추가 완료')
