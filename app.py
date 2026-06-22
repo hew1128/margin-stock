@@ -360,6 +360,25 @@ def update_group_order():
     return jsonify({'ok': True})
 
 
+@app.route('/pool-order', methods=['POST'])
+def update_pool_order():
+    data  = request.get_json()
+    group = data.get('group', '')
+    ids   = data.get('ids', [])   # pool id 순서 배열
+    conn  = get_db()
+    stored = conn.execute("SELECT value FROM settings WHERE key='pool_order'").fetchone()
+    try:
+        pool_order_map = json.loads(stored['value']) if stored else {}
+    except Exception:
+        pool_order_map = {}
+    pool_order_map[group] = ids
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('pool_order', ?)",
+                 (json.dumps(pool_order_map, ensure_ascii=False),))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
 def calculate_margin(product, exchange_rate=None, freebie_cost=0, purchase_krw_override=None):
     keys = product.keys() if hasattr(product, 'keys') else product
     method = (product['payment_method'] if 'payment_method' in keys else None) or '위안화'
@@ -692,6 +711,14 @@ def pools_list():
         WHERE sp.is_active=1
         GROUP BY sp.id ORDER BY sp.group_name ASC, sp.id DESC
     """).fetchall()
+
+    # 저장된 풀 순서 로드
+    stored = conn.execute("SELECT value FROM settings WHERE key='pool_order'").fetchone()
+    try:
+        pool_order_map = json.loads(stored['value']) if stored else {}
+    except Exception:
+        pool_order_map = {}
+
     groups = {}
     group_order = []
     for p in pools:
@@ -702,6 +729,18 @@ def pools_list():
         stock = get_pool_stock(p['id'], conn)
         fifo  = get_pool_fifo_cost(p['id'], conn)
         groups[gn].append({'pool': p, 'stock': stock, 'fifo': fifo})
+
+    # 그룹 순서 적용
+    fallback_map = {g: i for i, g in enumerate(group_order)}
+    group_order = sort_groups_by_setting(list(groups.keys()), fallback_map)
+
+    # 그룹 내 풀 순서 적용
+    for gn, items in groups.items():
+        id_order = pool_order_map.get(gn)
+        if id_order:
+            order_map = {pid: i for i, pid in enumerate(id_order)}
+            items.sort(key=lambda x: order_map.get(x['pool']['id'], 9999))
+
     conn.close()
     return render_template('pools.html', groups=groups, group_order=group_order)
 

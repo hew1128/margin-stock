@@ -38,21 +38,25 @@
   <div id="g{{gi}}" style="display:none;border:1px solid #e5e7eb;border-top:none;
        border-radius:0 0 10px 10px;overflow:hidden">
 
+  <div class="pool-group-list" data-group="{{ gname }}">
   {% for item in pool_list %}
   {% set pool = item.pool %}
   {% set stock = item.stock %}
   {% set fifo = item.fifo %}
   {% set pi = loop.index %}
 
-  <div style="border-bottom:1px solid #f1f1f1">
+  <div class="pool-row-wrap" data-pool-id="{{ pool.id }}" style="border-bottom:1px solid #f1f1f1">
 
     {# 풀 행 #}
     <div onclick="togG('p{{gi}}_{{pi}}','pa{{gi}}_{{pi}}')"
          style="display:flex;align-items:center;justify-content:space-between;
-                padding:12px 24px;background:#fff;cursor:pointer;user-select:none"
+                padding:12px 16px 12px 8px;background:#fff;cursor:pointer;user-select:none"
          onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background='#fff'">
 
-      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+      <div style="display:flex;align-items:center;gap:6px;min-width:0">
+        <span class="pool-drag-handle"
+              style="font-size:13px;color:#d1d5db;cursor:grab;padding:0 6px;flex-shrink:0;line-height:1;letter-spacing:1px"
+              onclick="event.stopPropagation()" title="드래그해서 순서 변경">⠿</span>
         <span id="pa{{gi}}_{{pi}}" style="font-size:11px;color:#bbb;transition:transform .2s;flex-shrink:0">▶</span>
         <div style="min-width:0">
           <div style="font-size:15px;font-weight:700">{{ pool.pool_name }}</div>
@@ -99,6 +103,7 @@
 
   </div>
   {% endfor %}
+  </div>{# /.pool-group-list #}
 
   <div style="padding:12px 20px;background:#f9fafb;border-top:1px solid #f1f1f1">
     <a href="/pool/new?group={{ gname }}" class="btn btn-secondary btn-sm">+ 이 그룹에 풀 추가</a>
@@ -182,6 +187,52 @@
 </div>
 
 <script>
+// ── 풀 순서 드래그 ──────────────────────────────────────────────
+(function() {
+  var dragging = null, fromList = null;
+
+  document.addEventListener('mousedown', function(e) {
+    var handle = e.target.closest('.pool-drag-handle');
+    if (!handle) return;
+    e.preventDefault();
+    dragging = handle.closest('.pool-row-wrap');
+    fromList = dragging.closest('.pool-group-list');
+    dragging.style.opacity = '0.5';
+    dragging.style.boxShadow = '0 2px 12px rgba(0,0,0,.15)';
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    var siblings = Array.from(fromList.querySelectorAll('.pool-row-wrap'));
+    siblings.forEach(function(s) {
+      if (s === dragging) return;
+      var rect = s.getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) {
+        fromList.insertBefore(dragging, s);
+      } else if (e.clientY > rect.top + rect.height / 2) {
+        fromList.insertBefore(dragging, s.nextSibling);
+      }
+    });
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (!dragging) return;
+    dragging.style.opacity = '';
+    dragging.style.boxShadow = '';
+    var group = fromList.dataset.group;
+    var ids = Array.from(fromList.querySelectorAll('.pool-row-wrap')).map(function(el) {
+      return parseInt(el.dataset.poolId);
+    });
+    fetch('/pool-order', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({group: group, ids: ids})
+    });
+    dragging = null; fromList = null;
+  });
+})();
+
+// ── 결제방식 등 기존 JS ──────────────────────────────────────────
 var PAY_COLORS = {'위안화':'#3b82f6','원화':'#10b981','카드':'#f59e0b'};
 
 function togG(cid, aid) {
