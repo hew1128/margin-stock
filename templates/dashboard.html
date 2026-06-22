@@ -2,7 +2,6 @@
 {% block content %}
 <div class="ph">
   <div><h1>대시보드</h1><p>재고 풀 현황 요약</p></div>
-  <a href="/pool/new" class="btn btn-primary">+ 풀 등록</a>
 </div>
 
 {# ── 요약 카드 ── #}
@@ -25,13 +24,19 @@
   </div>
 </div>
 
-{# ── 그룹별 풀 테이블 ── #}
+{# ── 그룹별 풀 테이블 (드래그로 순서 변경) ── #}
+<div id="groupList">
 {% for gname in group_order %}
 {% set pool_list = groups[gname] %}
-<div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
+<div class="group-card card" data-group="{{ gname }}"
+     style="margin-bottom:16px;padding:0;overflow:hidden">
   <div style="display:flex;align-items:center;justify-content:space-between;
-              padding:12px 20px;background:#16213e;color:#fff">
-    <span style="font-size:15px;font-weight:700">{{ gname }}</span>
+              padding:10px 16px;background:#16213e;color:#fff;cursor:grab;user-select:none"
+       class="drag-handle">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:13px;color:rgba(255,255,255,.35);letter-spacing:1px;line-height:1">⠿</span>
+      <span style="font-size:15px;font-weight:700">{{ gname }}</span>
+    </div>
     {% set g_stock = pool_list | sum(attribute='stock') %}
     <span style="font-size:13px;font-weight:700;padding:4px 12px;border-radius:7px;
                  background:{{ '#10b981' if g_stock > 10 else ('#f59e0b' if g_stock > 0 else '#ef4444') }}">
@@ -79,10 +84,60 @@
   </table>
 </div>
 {% endfor %}
+</div>
 
 {% if not group_order %}
 <div class="card" style="padding:60px;text-align:center;color:#aaa">
-  등록된 재고 풀이 없습니다. <a href="/pool/new" style="color:#4f46e5">풀 등록하기 →</a>
+  등록된 재고 풀이 없습니다.
 </div>
 {% endif %}
+
+<script>
+(function() {
+  var list = document.getElementById('groupList');
+  if (!list) return;
+
+  var dragging = null;
+
+  list.querySelectorAll('.group-card').forEach(function(card) {
+    var handle = card.querySelector('.drag-handle');
+    handle.addEventListener('mousedown', function(e) {
+      dragging = card;
+      card.style.opacity = '0.55';
+      card.style.boxShadow = '0 4px 20px rgba(0,0,0,.2)';
+    });
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    var cards = Array.from(list.querySelectorAll('.group-card'));
+    cards.forEach(function(c) {
+      if (c === dragging) return;
+      var rect = c.getBoundingClientRect();
+      var mid  = rect.top + rect.height / 2;
+      if (e.clientY < mid) {
+        list.insertBefore(dragging, c);
+      } else if (e.clientY > mid && c.nextSibling !== dragging) {
+        list.insertBefore(dragging, c.nextSibling);
+      }
+    });
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (!dragging) return;
+    dragging.style.opacity = '';
+    dragging.style.boxShadow = '';
+    dragging = null;
+    // 순서 저장
+    var order = Array.from(list.querySelectorAll('.group-card')).map(function(c) {
+      return c.dataset.group;
+    });
+    fetch('/group-order', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({order: order})
+    });
+  });
+})();
+</script>
 {% endblock %}

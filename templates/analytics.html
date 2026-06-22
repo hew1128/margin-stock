@@ -1,275 +1,134 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="ph">
-  <div><h1>분석</h1><p>스토어 상품명별 · 옵션별 판매 추이</p></div>
+  <div><h1>분석 / 소명자료</h1><p>기간별 매출·사입 집계</p></div>
 </div>
 
-<script>
-var G_NAMES = {{ group_names | tojson }};
-async function moveGroup(name, dir) {
-  var idx = G_NAMES.indexOf(name);
-  var ni  = idx + dir;
-  if (ni < 0 || ni >= G_NAMES.length) return;
-  var arr = G_NAMES.slice();
-  arr[idx] = G_NAMES[ni]; arr[ni] = G_NAMES[idx];
-  await fetch('/group-order', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({order: arr})});
-  location.reload();
-}
-</script>
+{# ── 기간 선택 ── #}
+<div class="card" style="margin-bottom:16px;padding:16px 20px">
+  <form method="GET" action="/analytics" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <label style="font-size:13px;font-weight:600;color:#555">기간</label>
+    <input type="date" name="start" value="{{ start }}" class="form-control" style="width:150px">
+    <span style="color:#aaa">~</span>
+    <input type="date" name="end"   value="{{ end }}"   class="form-control" style="width:150px">
+    <button type="submit" class="btn btn-primary">조회</button>
+    <a href="/analytics/csv?start={{ start }}&end={{ end }}" class="btn btn-success">CSV 다운로드</a>
+    <span style="font-size:12px;color:#aaa">* CSV는 Excel에서 열면 소명자료로 활용 가능</span>
+  </form>
+</div>
 
-{% if group_names %}
-{% for gname in group_names %}
-{% set gi = loop.index %}
-<div style="margin-bottom:12px">
-
-  <div style="display:flex;align-items:center;justify-content:space-between;
-              padding:14px 20px;background:#fff;border:1px solid #e5e7eb;
-              border-radius:10px;user-select:none">
-    <div onclick="togGroup({{gi}},{{gname|tojson}})"
-         style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer"
-         onmouseover="this.parentElement.style.background='#f9fafb'" onmouseout="this.parentElement.style.background='#fff'">
-      <span id="garr{{gi}}" style="font-size:11px;color:#bbb;transition:transform .2s">▶</span>
-      <span style="font-size:16px;font-weight:700">{{ gname }}</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:6px">
-      <button onclick="moveGroup({{ gname|tojson }}, -1)" title="위로"
-              style="width:26px;height:26px;border:1px solid #e5e7eb;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;color:#9ca3af;line-height:1;padding:0">▲</button>
-      <button onclick="moveGroup({{ gname|tojson }}, 1)" title="아래로"
-              style="width:26px;height:26px;border:1px solid #e5e7eb;background:#fff;border-radius:5px;cursor:pointer;font-size:12px;color:#9ca3af;line-height:1;padding:0">▼</button>
-      <span style="font-size:12px;color:#9ca3af">클릭하여 추이 보기</span>
-    </div>
+{# ── 요약 카드 ── #}
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">총 판매수량</div>
+    <div style="font-size:28px;font-weight:800;color:#111">{{ '{:,}'.format(total_qty) }}개</div>
   </div>
-
-  <div id="gbody{{gi}}" style="display:none;background:#fff;border:1px solid #e5e7eb;
-       border-top:none;border-radius:0 0 10px 10px;padding:20px 24px">
-
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
-      <button id="gbtn_{{gi}}_daily"   onclick="switchPeriod({{gi}},{{gname|tojson}},'daily')"
-              style="padding:6px 14px;border-radius:6px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;cursor:pointer">일간</button>
-      <button id="gbtn_{{gi}}_weekly"  onclick="switchPeriod({{gi}},{{gname|tojson}},'weekly')"
-              style="padding:6px 14px;border-radius:6px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;cursor:pointer">주간</button>
-      <button id="gbtn_{{gi}}_monthly" onclick="switchPeriod({{gi}},{{gname|tojson}},'monthly')"
-              style="padding:6px 14px;border-radius:6px;border:1.5px solid #4f46e5;background:#4f46e5;color:#fff;font-size:12px;font-weight:600;cursor:pointer">월간</button>
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">총 매출액</div>
+    <div style="font-size:26px;font-weight:800;color:#2563eb">{{ '{:,}'.format(total_revenue) }}원</div>
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">총 사입금액</div>
+    <div style="font-size:26px;font-weight:800;color:#d97706">{{ '{:,.0f}'.format(purchase_total) }}원</div>
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    {% set profit = total_revenue - purchase_total %}
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">매출 - 사입</div>
+    <div style="font-size:26px;font-weight:800;color:{{ '#10b981' if profit >= 0 else '#ef4444' }}">
+      {{ '{:,.0f}'.format(profit) }}원
     </div>
-
-    <!-- 메인 차트 -->
-    <div style="position:relative;height:260px;margin-bottom:4px">
-      <canvas id="gchart{{gi}}"></canvas>
-    </div>
-    <div id="gchartlabel{{gi}}" style="font-size:11px;color:#9ca3af;margin-bottom:20px"></div>
-
-    <!-- 리스팅별 옵션 상세 (여러 리스팅일 때만) -->
-    <div id="gdetail{{gi}}"></div>
-
   </div>
 </div>
-{% endfor %}
 
-{% else %}
-<div class="card" style="padding:60px;text-align:center;color:#aaa">
-  출고 이력이 없습니다. 발송파일을 업로드하면 분석 데이터가 쌓입니다.
+{# ── 월별 집계 ── #}
+{% if monthly_rows %}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">월별 매출</div>
+  <table>
+    <thead>
+      <tr>
+        <th>월</th>
+        <th class="tr">판매수량</th>
+        <th class="tr">매출액</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for m in monthly_rows %}
+    <tr>
+      <td style="font-weight:600">{{ m.month }}</td>
+      <td class="tr">{{ '{:,}'.format(m.total_qty) }}개</td>
+      <td class="tr" style="font-weight:700;color:#2563eb">{{ '{:,}'.format(m.total_revenue) }}원</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endif %}
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
-const ALL_DATA = {{ chart_data|safe }};
-const COLORS = ['#4f46e5','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#64748b'];
-const gCharts = {};
-const lCharts = {};
-const gState  = {};  // gi → {gname, period, inited}
+{# ── 풀별 집계 ── #}
+{% if pool_rows %}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">상품(풀)별 매출</div>
+  <table>
+    <thead>
+      <tr>
+        <th>그룹</th>
+        <th>풀명</th>
+        <th class="tr">판매수량</th>
+        <th class="tr">매출액</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for p in pool_rows %}
+    <tr>
+      <td style="color:#6b7280">{{ p.group_name }}</td>
+      <td style="font-weight:600">{{ p.pool_name }}</td>
+      <td class="tr">{{ '{:,}'.format(p.total_qty) }}개</td>
+      <td class="tr" style="font-weight:700;color:#2563eb">{{ '{:,}'.format(p.total_revenue) }}원</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
-function getWeekKey(ds) {
-  var d = new Date(ds), day = d.getDay()||7;
-  d.setDate(d.getDate()+4-day);
-  var y = d.getFullYear(), s = new Date(y,0,1);
-  var w = Math.ceil(((d-s)/86400000+1)/7);
-  return y+'-W'+String(w).padStart(2,'0');
-}
-function getKey(ds, period) {
-  return period==='daily' ? ds : period==='monthly' ? ds.slice(0,7) : getWeekKey(ds);
-}
-function getLabels(period) {
-  var now=new Date(), labels=[], seen={}, n=period==='daily'?30:12;
-  for (var i=n-1;i>=0;i--) {
-    var d=new Date(now);
-    if (period==='daily')        d.setDate(d.getDate()-i);
-    else if (period==='weekly')  d.setDate(d.getDate()-i*7);
-    else                         d.setMonth(d.getMonth()-i);
-    var k=getKey(d.toISOString().slice(0,10),period);
-    if (!seen[k]) { seen[k]=1; labels.push(k); }
-  }
-  return labels;
-}
-
-function chartConfig(labels, datasets) {
-  return {
-    type: 'line',
-    data: { labels: labels, datasets: datasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { position:'top', labels:{ font:{size:11}, boxWidth:12, padding:12 } },
-        tooltip: { callbacks: { label: function(c){ return c.dataset.label+': '+c.parsed.y+'개'; } } }
-      },
-      scales: {
-        x: { grid:{color:'#f0f0f0'}, ticks:{font:{size:11},maxRotation:45} },
-        y: { grid:{color:'#f0f0f0'}, ticks:{font:{size:11},stepSize:1}, beginAtZero:true }
-      }
-    }
-  };
-}
-
-function makeDataset(label, dataArr, ci) {
-  return {
-    label: label,
-    data: dataArr,
-    borderColor: COLORS[ci%COLORS.length],
-    backgroundColor: COLORS[ci%COLORS.length]+'28',
-    tension: 0.35, fill: true, pointRadius: 3, pointHoverRadius: 5,
-  };
-}
-
-// 리스팅 비교 차트 (그룹 내 리스팅별 총 판매량)
-function renderGroupChart(gi, gname, period) {
-  var groupData = ALL_DATA[gname];
-  if (!groupData) return;
-  var labels = getLabels(period);
-  var listings = Object.keys(groupData);
-  var datasets = [];
-  var ci = 0;
-
-  if (listings.length === 1) {
-    // 리스팅 1개 → 옵션 비교 차트
-    var listingData = groupData[listings[0]];
-    for (var opt in listingData) {
-      var agg = {};
-      listingData[opt].forEach(function(r){ var k=getKey(r.date,period); agg[k]=(agg[k]||0)+r.qty; });
-      datasets.push(makeDataset(opt, labels.map(function(l){return agg[l]||0;}), ci++));
-    }
-    var label = document.getElementById('gchartlabel'+gi);
-    if (label) label.textContent = '옵션별 판매 추이';
-  } else {
-    // 리스팅 여러 개 → 리스팅 비교 차트
-    listings.forEach(function(listingName) {
-      var agg = {};
-      for (var opt in groupData[listingName]) {
-        groupData[listingName][opt].forEach(function(r){ var k=getKey(r.date,period); agg[k]=(agg[k]||0)+r.qty; });
-      }
-      var shortName = listingName.length>28 ? listingName.slice(0,28)+'…' : listingName;
-      datasets.push(makeDataset(shortName, labels.map(function(l){return agg[l]||0;}), ci++));
-    });
-    var label = document.getElementById('gchartlabel'+gi);
-    if (label) label.textContent = '스토어 상품명별 판매 비교 (옵션 합산)';
-  }
-
-  var canvas = document.getElementById('gchart'+gi);
-  if (!canvas) return;
-  if (gCharts[gi]) gCharts[gi].destroy();
-  gCharts[gi] = new Chart(canvas.getContext('2d'), chartConfig(labels, datasets));
-}
-
-// 리스팅별 옵션 상세 섹션 렌더링 (여러 리스팅일 때)
-function renderDetailSection(gi, gname, period) {
-  var groupData = ALL_DATA[gname];
-  var listings = Object.keys(groupData);
-  if (listings.length <= 1) return;
-
-  var container = document.getElementById('gdetail'+gi);
-  if (!container || container.dataset.built) {
-    // 이미 빌드됨 → 차트만 새로 그리기
-    if (container) {
-      listings.forEach(function(listingName, li) {
-        var lid = 'ld_'+gi+'_'+li;
-        var body = document.getElementById(lid);
-        if (body && body.style.display !== 'none') {
-          drawListingChart(lid, groupData[listingName], period);
-        }
-      });
-    }
-    return;
-  }
-
-  container.dataset.built = '1';
-  container.innerHTML = '<div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:8px;padding-top:4px;border-top:1px solid #f3f4f6">▼ 리스팅별 옵션 상세</div>';
-
-  listings.forEach(function(listingName, li) {
-    var lid = 'ld_'+gi+'_'+li;
-    var optCount = Object.keys(groupData[listingName]).length;
-    var div = document.createElement('div');
-    div.style.cssText = 'border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;overflow:hidden';
-    div.innerHTML =
-      '<div onclick="togDetail(\''+lid+'\',\''+gi+'\','+JSON.stringify(listingName)+')" '
-      +'style="padding:10px 16px;background:#f9fafb;cursor:pointer;display:flex;align-items:center;user-select:none">'
-      +'<span id="darr'+lid+'" style="font-size:10px;color:#bbb;margin-right:8px;transition:transform .2s">▶</span>'
-      +'<span style="font-size:13px;font-weight:600;flex:1">'+listingName+'</span>'
-      +'<span style="font-size:11px;color:#9ca3af">옵션 '+optCount+'개</span>'
-      +'</div>'
-      +'<div id="'+lid+'" style="display:none;padding:16px">'
-      +'<div style="position:relative;height:200px"><canvas id="lc_'+lid+'"></canvas></div>'
-      +'</div>';
-    container.appendChild(div);
-  });
-}
-
-function drawListingChart(lid, listingData, period) {
-  var labels = getLabels(period);
-  var datasets = [];
-  var ci = 0;
-  for (var opt in listingData) {
-    var agg = {};
-    listingData[opt].forEach(function(r){ var k=getKey(r.date,period); agg[k]=(agg[k]||0)+r.qty; });
-    datasets.push(makeDataset(opt, labels.map(function(l){return agg[l]||0;}), ci++));
-  }
-  var canvas = document.getElementById('lc_'+lid);
-  if (!canvas) return;
-  if (lCharts[lid]) lCharts[lid].destroy();
-  lCharts[lid] = new Chart(canvas.getContext('2d'), chartConfig(labels, datasets));
-}
-
-function togDetail(lid, gi, listingName) {
-  var body = document.getElementById(lid);
-  var arr  = document.getElementById('darr'+lid);
-  if (!body) return;
-  var open = body.style.display === 'none';
-  body.style.display = open ? '' : 'none';
-  if (arr) arr.style.transform = open ? 'rotate(90deg)' : '';
-  if (open) {
-    var gname  = gState[gi] && gState[gi].gname;
-    var period = gState[gi] && gState[gi].period || 'monthly';
-    if (gname && ALL_DATA[gname] && ALL_DATA[gname][listingName]) {
-      drawListingChart(lid, ALL_DATA[gname][listingName], period);
-    }
-  }
-}
-
-function togGroup(gi, gname) {
-  var body = document.getElementById('gbody'+gi);
-  var arr  = document.getElementById('garr'+gi);
-  if (!body) return;
-  var open = body.style.display === 'none';
-  body.style.display = open ? '' : 'none';
-  if (arr) arr.style.transform = open ? 'rotate(90deg)' : '';
-  if (open && !(gState[gi] && gState[gi].inited)) {
-    gState[gi] = { gname: gname, period: 'monthly', inited: true };
-    renderGroupChart(gi, gname, 'monthly');
-    renderDetailSection(gi, gname, 'monthly');
-  }
-}
-
-function switchPeriod(gi, gname, period) {
-  ['daily','weekly','monthly'].forEach(function(p) {
-    var btn = document.getElementById('gbtn_'+gi+'_'+p);
-    if (!btn) return;
-    if (p===period) { btn.style.background='#4f46e5'; btn.style.color='#fff'; btn.style.borderColor='#4f46e5'; }
-    else            { btn.style.background='#fff';    btn.style.color='#222'; btn.style.borderColor='#e0e0e0'; }
-  });
-  if (!gState[gi]) gState[gi] = { gname: gname, inited: true };
-  gState[gi].period = period;
-  gState[gi].gname  = gname;
-  renderGroupChart(gi, gname, period);
-  renderDetailSection(gi, gname, period);
-}
-</script>
+{# ── 일별 판매 상세 ── #}
+{% if sale_rows %}
+<div class="card">
+  <div class="card-title">판매 상세 내역</div>
+  <table>
+    <thead>
+      <tr>
+        <th>날짜</th>
+        <th>그룹</th>
+        <th>풀명</th>
+        <th>스토어 상품명</th>
+        <th>옵션명</th>
+        <th class="tr">판매가</th>
+        <th class="tr">수량</th>
+        <th class="tr">매출액</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in sale_rows %}
+    <tr>
+      <td style="color:#6b7280;white-space:nowrap">{{ r.date }}</td>
+      <td style="color:#9ca3af;font-size:12px">{{ r.group_name }}</td>
+      <td style="font-weight:600">{{ r.pool_name }}</td>
+      <td style="font-size:12px;color:#555;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="{{ r.store_name }}">{{ r.store_name }}</td>
+      <td><span class="badge bg-blue">{{ r.option_name }}</span></td>
+      <td class="tr">{{ '{:,}'.format(r.sale_price) }}원</td>
+      <td class="tr" style="font-weight:600">{{ r.total_qty }}개</td>
+      <td class="tr" style="font-weight:700;color:#2563eb">{{ '{:,}'.format(r.total_revenue) }}원</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card" style="padding:60px;text-align:center;color:#aaa">
+  선택한 기간에 판매 내역이 없습니다.
+</div>
+{% endif %}
 {% endblock %}

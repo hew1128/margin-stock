@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify, make_response
 import sqlite3
 import os
 import re
@@ -669,8 +669,11 @@ def dashboard():
         })
 
     conn.close()
-    total_pools = len(pools)
+    total_pools  = len(pools)
     total_groups = len(groups)
+    # 저장된 그룹 순서 적용
+    fallback_map = {g: i for i, g in enumerate(group_order)}
+    group_order  = sort_groups_by_setting(list(groups.keys()), fallback_map)
     return render_template('dashboard.html',
                            groups=groups, group_order=group_order,
                            total_pools=total_pools, total_groups=total_groups,
@@ -2041,45 +2044,121 @@ def history():
 
 @app.route('/analytics')
 def analytics():
+    from datetime import date as _date
+    today = _date.today()
+    # 기본: 이번 달 1일 ~ 오늘
+    default_start = today.strftime('%Y-%m-01')
+    default_end   = today.strftime('%Y-%m-%d')
+
+    start = request.args.get('start', default_start)
+    end   = request.args.get('end',   default_end)
+
     conn = get_db()
-    rows = conn.execute("""
-        SELECT COALESCE(NULLIF(p.product_group,''), p.name) as grp,
-               p.name, COALESCE(p.option_name,'') as opt,
-               so.date, SUM(so.quantity) as qty
-        FROM stock_out so
-        JOIN products p ON so.product_id = p.id
-        GROUP BY grp, p.name, p.option_name, so.date
-        ORDER BY grp, p.name, p.option_name, so.date
-    """).fetchall()
+
+    # ── 기간 내 판매 상세 (풀/옵션별) ──────────────────────────
+    sale_rows = conn.execute("""
+        SELECT sp.group_name, sp.pool_name,
+               po.store_name, po.option_name, po.sale_price,
+               SUM(so.quantity) as total_qty,
+               SUM(so.quantity * po.sale_price) as total_revenue,
+               so.date
+        FROM pool_stock_out so
+        JOIN pool_options po ON so.option_id = po.id
+        JOIN stock_pools sp ON so.pool_id = sp.id
+        WHERE so.date BETWEEN ? AND ?
+        GROUP BY sp.id, po.id, so.date
+        ORDER BY so.date DESC, sp.group_name, sp.pool_name, po.option_name
+    """, (start, end)).fetchall()
+
+    # ── 월별 집계 ────────────────────────────────────────────
+    monthly_rows = conn.execute("""
+        SELECT strftime('%Y-%m', so.date) as month,
+               SUM(so.quantity) as total_qty,
+               SUM(so.quantity * po.sale_price) as total_revenue
+        FROM pool_stock_out so
+        JOIN pool_options po ON so.option_id = po.id
+        WHERE so.date BETWEEN ? AND ?
+        GROUP BY month
+        ORDER BY month DESC
+    """, (start, end)).fetchall()
+
+    # ── 풀별 집계 ────────────────────────────────────────────
+    pool_rows = conn.execute("""
+        SELECT sp.group_name, sp.pool_name,
+               SUM(so.quantity) as total_qty,
+               SUM(so.quantity * po.sale_price) as total_revenue
+        FROM pool_stock_out so
+        JOIN pool_options po ON so.option_id = po.id
+        JOIN stock_pools sp ON so.pool_id = sp.id
+        WHERE so.date BETWEEN ? AND ?
+        GROUP BY sp.id
+        ORDER BY total_revenue DESC
+    """, (start, end)).fetchall()
+
+    # ── 기간 내 사입 합계 ────────────────────────────────────
+    purchase_total = conn.execute("""
+        SELECT COALESCE(SUM(
+            CASE WHEN payment_method='위안화'
+                 THEN quantity * purchase_price_cny * exchange_rate
+                 ELSE quantity * purchase_price_krw END
+        ), 0) as total
+        FROM pool_stock_in
+        WHERE date BETWEEN ? AND ?
+    """, (start, end)).fetchone()['total']
+
     conn.close()
 
-    data = {}
-    group_max_date = {}
-    for row in rows:
-        grp  = row['grp']
-        name = row['name']
-        opt  = row['opt'] or '기본'
-        if grp not in data:
-            data[grp] = {}
-            group_max_date[grp] = ''
-        if name not in data[grp]:
-            data[grp][name] = {}
-        if opt not in data[grp][name]:
-            data[grp][name][opt] = []
-        data[grp][name][opt].append({'date': row['date'], 'qty': row['qty']})
-        if row['date'] > group_max_date.get(grp, ''):
-            group_max_date[grp] = row['date']
+    total_qty     = sum(r['total_qty'] for r in monthly_rows)
+    total_revenue = sum(r['total_revenue'] for r in monthly_rows)
 
-    # max_date를 숫자로 쓰기 위해 group_max_id가 없으므로 날짜역순을 fallback으로 사용
-    def _date_to_pseudo_id(g):
-        d = group_max_date.get(g, '')
-        return int(d.replace('-', '')) if d else 0
-    fallback_map = {g: _date_to_pseudo_id(g) for g in data}
-    gkeys = sort_groups_by_setting(list(data.keys()), fallback_map)
-    ordered = {g: data[g] for g in gkeys}
     return render_template('analytics.html',
-                           chart_data=json.dumps(ordered, ensure_ascii=False),
-                           group_names=gkeys)
+        start=start, end=end,
+        sale_rows=sale_rows,
+        monthly_rows=monthly_rows,
+        pool_rows=pool_rows,
+        total_qty=total_qty,
+        total_revenue=total_revenue,
+        purchase_total=purchase_total,
+    )
+
+
+@app.route('/analytics/csv')
+def analytics_csv():
+    import csv, io
+    from datetime import date as _date
+    today = _date.today()
+    start = request.args.get('start', today.strftime('%Y-%m-01'))
+    end   = request.args.get('end',   today.strftime('%Y-%m-%d'))
+
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT so.date, sp.group_name, sp.pool_name,
+               po.store_name, po.option_name, po.sale_price,
+               so.quantity,
+               so.quantity * po.sale_price as revenue,
+               so.order_number
+        FROM pool_stock_out so
+        JOIN pool_options po ON so.option_id = po.id
+        JOIN stock_pools sp ON so.pool_id = sp.id
+        WHERE so.date BETWEEN ? AND ?
+        ORDER BY so.date DESC, sp.group_name, sp.pool_name
+    """, (start, end)).fetchall()
+    conn.close()
+
+    buf = io.StringIO()
+    buf.write('﻿')  # BOM (Excel 한글 깨짐 방지)
+    w = csv.writer(buf)
+    w.writerow(['날짜', '그룹', '풀명', '스토어 상품명', '옵션명', '판매가', '수량', '매출액', '주문번호'])
+    for r in rows:
+        w.writerow([r['date'], r['group_name'], r['pool_name'],
+                    r['store_name'], r['option_name'], r['sale_price'],
+                    r['quantity'], r['revenue'], r['order_number']])
+
+    resp = make_response(buf.getvalue())
+    resp.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    fname = f'매출내역_{start}_{end}.csv'
+    resp.headers['Content-Disposition'] = f'attachment; filename*=UTF-8\'\'{fname}'
+    return resp
 
 
 # ─── 엑셀 다운로드 ──────────────────────────────────────────────────────────────
