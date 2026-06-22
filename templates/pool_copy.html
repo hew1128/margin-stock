@@ -1,0 +1,121 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div>
+    <a href="/pool/{{ pool.id }}" style="font-size:13px;color:#6b7280;text-decoration:none">← 원본 풀</a>
+    <h1 style="margin-top:4px">풀 복사</h1>
+    <p style="color:#6b7280;margin-top:2px">원본: <strong>{{ pool.group_name }} / {{ pool.pool_name }}</strong> (옵션 {{ options|length }}개)</p>
+  </div>
+</div>
+
+<form method="POST" action="/pool/{{ pool.id }}/copy" id="copyForm">
+
+  {# ── 단어 치환 ── #}
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">단어 치환 <span style="font-size:12px;font-weight:400;color:#9ca3af">스토어 상품명 + 옵션명 전체에 일괄 적용</span></div>
+    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:16px">
+      <div class="form-group" style="margin:0">
+        <label>찾을 단어</label>
+        <input type="text" name="find_text" id="findText" class="form-control"
+               placeholder="예: 일반" oninput="preview()" style="font-size:15px;font-weight:600">
+      </div>
+      <div style="font-size:22px;color:#9ca3af;padding-top:20px">→</div>
+      <div class="form-group" style="margin:0">
+        <label>바꿀 단어</label>
+        <input type="text" name="replace_text" id="replaceText" class="form-control"
+               placeholder="예: 대형" oninput="preview()" style="font-size:15px;font-weight:600;color:#4f46e5">
+      </div>
+    </div>
+  </div>
+
+  {# ── 새 풀 정보 ── #}
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">새 풀 정보</div>
+    <div class="row2" style="gap:24px">
+      <div class="form-group" style="margin:0">
+        <label>그룹명 <span style="color:#ef4444">*</span></label>
+        <input type="text" name="group_name" id="newGroup" class="form-control" required
+               value="{{ pool.group_name }}" style="font-size:15px;font-weight:600">
+        <p class="hint">치환 단어가 있으면 자동 적용됩니다</p>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>새 풀 이름 <span style="color:#ef4444">*</span></label>
+        <input type="text" name="pool_name" id="newPoolName" class="form-control" required
+               value="{{ pool.pool_name }}" style="font-size:15px">
+        <p class="hint">치환 단어가 있으면 자동 적용됩니다</p>
+      </div>
+    </div>
+  </div>
+
+  {# ── 미리보기 ── #}
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">옵션 미리보기</div>
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:10px">복사 후 옵션명 / 스토어 상품명이 어떻게 바뀌는지 확인하세요</div>
+    <table>
+      <thead>
+        <tr>
+          <th>스토어 상품명</th>
+          <th>옵션명</th>
+          <th class="tr">판매가</th>
+        </tr>
+      </thead>
+      <tbody id="previewBody">
+        {% for o in options %}
+        <tr data-store="{{ o.store_name or '' }}" data-opt="{{ o.option_name }}" data-price="{{ o.sale_price }}">
+          <td style="font-size:12px;color:#6b7280" class="store-cell">{{ o.store_name or '-' }}</td>
+          <td class="opt-cell"><span class="badge bg-blue">{{ o.option_name }}</span></td>
+          <td class="tr bold">{{ '{:,}'.format(o.sale_price) }}원</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ── 복사된 풀 설정 안내 ── #}
+  <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:#92400e">
+    사입 수량은 복사되지 않습니다. 복사 후 <strong>재사입</strong> 버튼으로 수량을 입력하세요.
+    비용(관세/운송/용달/수수료/택배)은 원본과 동일하게 복사됩니다.
+  </div>
+
+  <div style="display:flex;gap:10px;align-items:center">
+    <button type="submit" class="btn btn-primary" style="font-size:15px;padding:10px 32px">복사 생성</button>
+    <a href="/pool/{{ pool.id }}" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+
+<script>
+var origGroup = '{{ pool.group_name }}';
+var origPool  = '{{ pool.pool_name }}';
+
+function preview() {
+  var find = document.getElementById('findText').value;
+  var repl = document.getElementById('replaceText').value;
+
+  function rep(s) {
+    if (!find || !s) return s;
+    return s.split(find).join(repl);
+  }
+
+  // 그룹명 / 풀이름 자동 업데이트
+  document.getElementById('newGroup').value    = rep(origGroup);
+  document.getElementById('newPoolName').value = rep(origPool);
+
+  // 옵션 미리보기 업데이트
+  var rows = document.querySelectorAll('#previewBody tr');
+  rows.forEach(function(row) {
+    var store = row.getAttribute('data-store');
+    var opt   = row.getAttribute('data-opt');
+    var newStore = rep(store);
+    var newOpt   = rep(opt);
+    var storeCell = row.querySelector('.store-cell');
+    var optCell   = row.querySelector('.opt-cell span');
+    storeCell.textContent = newStore || '-';
+    optCell.textContent   = newOpt;
+    // 바뀐 경우 강조
+    storeCell.style.color = (newStore !== store) ? '#4f46e5' : '#6b7280';
+    optCell.style.background = (newOpt !== opt) ? '#4f46e5' : '';
+    optCell.style.color = (newOpt !== opt) ? '#fff' : '';
+  });
+}
+</script>
+{% endblock %}

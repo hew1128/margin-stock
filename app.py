@@ -937,6 +937,63 @@ def pool_delete(pool_id):
     return redirect(url_for('pools_list'))
 
 
+@app.route('/pool/<int:pool_id>/copy', methods=['GET', 'POST'])
+def pool_copy(pool_id):
+    conn = get_db()
+    pool = conn.execute("SELECT * FROM stock_pools WHERE id=?", (pool_id,)).fetchone()
+    if not pool:
+        conn.close()
+        flash('풀을 찾을 수 없습니다.')
+        return redirect(url_for('pools_list'))
+    options = conn.execute(
+        "SELECT * FROM pool_options WHERE pool_id=? AND is_active=1 ORDER BY id", (pool_id,)
+    ).fetchall()
+
+    if request.method == 'POST':
+        find_text    = request.form.get('find_text', '')
+        replace_text = request.form.get('replace_text', '')
+        new_pool_name  = request.form.get('pool_name', '').strip()
+        new_group_name = request.form.get('group_name', '').strip()
+
+        if not new_pool_name:
+            flash('새 풀 이름을 입력해주세요.')
+            conn.close()
+            return redirect(request.url)
+
+        def rep(text):
+            if find_text and text:
+                return text.replace(find_text, replace_text)
+            return text or ''
+
+        conn.execute("""INSERT INTO stock_pools
+            (group_name, pool_name, purchase_price_cny, purchase_price_krw,
+             exchange_rate, payment_method, card_info,
+             customs_total, shipping_total, yongdal_total,
+             naver_fee_rate, domestic_shipping)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (rep(new_group_name), new_pool_name,
+             pool['purchase_price_cny'], pool['purchase_price_krw'],
+             pool['exchange_rate'], pool['payment_method'], pool['card_info'] or '',
+             pool['customs_total'], pool['shipping_total'], pool['yongdal_total'],
+             pool['naver_fee_rate'], pool['domestic_shipping']))
+        new_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+
+        for o in options:
+            conn.execute("""INSERT INTO pool_options
+                (pool_id, store_name, option_name, sale_price, product_type)
+                VALUES (?,?,?,?,?)""",
+                (new_id, rep(o['store_name'] or ''), rep(o['option_name']),
+                 o['sale_price'], o['product_type']))
+
+        conn.commit()
+        conn.close()
+        flash(f'"{new_pool_name}" 복사 완료. 재사입 버튼으로 사입 수량을 추가해주세요.')
+        return redirect(url_for('pool_detail', pool_id=new_id))
+
+    conn.close()
+    return render_template('pool_copy.html', pool=pool, options=options)
+
+
 @app.route('/pool/<int:pool_id>/edit', methods=['GET', 'POST'])
 def pool_edit(pool_id):
     conn = get_db()

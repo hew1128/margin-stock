@@ -8,6 +8,7 @@
   </div>
   <div style="display:flex;gap:8px">
     <button onclick="openRestock()" class="btn btn-success">재사입</button>
+    <a href="/pool/{{ pool.id }}/copy" class="btn btn-secondary">복사</a>
     <a href="/pool/{{ pool.id }}/edit" class="btn btn-secondary">풀 수정</a>
     <form method="POST" action="/pool/{{ pool.id }}/delete"
           onsubmit="return confirm('이 풀을 삭제하시겠습니까?')">
