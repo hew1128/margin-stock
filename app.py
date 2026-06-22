@@ -1039,9 +1039,19 @@ def pool_edit(pool_id):
              exchange_rate, card_info,
              customs_total, shipping_total, yongdal_total,
              naver_fee_rate, domestic_ship, pool_id))
+        add_qty  = int(request.form.get('add_quantity') or 0)
+        add_date = request.form.get('add_date', '').strip() or datetime.now().strftime('%Y-%m-%d')
+        add_memo = request.form.get('add_memo', '').strip()
+        if add_qty > 0:
+            conn.execute("""INSERT INTO pool_stock_in
+                (pool_id, quantity, purchase_price_cny, purchase_price_krw,
+                 exchange_rate, payment_method, card_info, date, memo)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
+                (pool_id, add_qty, cny, krw, exchange_rate,
+                 payment_method, card_info, add_date, add_memo or '풀 수정 입고'))
         conn.commit()
         conn.close()
-        flash('풀 정보가 수정되었습니다.')
+        flash('풀 정보가 수정되었습니다.' + (f' ({add_qty}개 입고 추가)' if add_qty > 0 else ''))
         return redirect(url_for('pool_detail', pool_id=pool_id))
     conn.close()
     return render_template('pool_edit.html', pool=pool)

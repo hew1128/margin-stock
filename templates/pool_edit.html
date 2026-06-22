@@ -76,6 +76,25 @@
     </div>
   </div>
 
+  {# ── 재고 추가 ── #}
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">재고 추가 <span style="font-size:12px;font-weight:400;color:#9ca3af">0이면 재고 변경 없음</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <div class="form-group" style="margin:0">
+        <label>수량 (개)</label>
+        <input type="number" name="add_quantity" class="form-control" value="0" min="0">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>입고일</label>
+        <input type="date" name="add_date" id="addDate" class="form-control">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>메모</label>
+        <input type="text" name="add_memo" class="form-control" placeholder="예: 초기 사입">
+      </div>
+    </div>
+  </div>
+
   {# ── 비용 ── #}
   <div class="card" style="margin-bottom:14px">
     <div class="card-title">비용</div>
@@ -112,6 +131,8 @@
 <script>
 (function() {
   togglePay(document.getElementById('payMethod').value);
+  var d = document.getElementById('addDate');
+  if (d && !d.value) d.value = new Date().toISOString().slice(0,10);
 })();
 
 function togglePay(method) {
