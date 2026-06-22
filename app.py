@@ -1011,19 +1011,33 @@ def pool_edit(pool_id):
         conn.close()
         return redirect(url_for('pools_list'))
     if request.method == 'POST':
-        group_name     = request.form.get('group_name', '').strip()
-        pool_name      = request.form.get('pool_name', '').strip()
-        customs_total  = int(request.form.get('customs_total') or 0)
-        shipping_total = int(request.form.get('shipping_total') or 0)
-        yongdal_total  = int(request.form.get('yongdal_total') or 0)
-        naver_fee_rate = float(request.form.get('naver_fee_rate') or 2.0)
-        domestic_ship  = int(request.form.get('domestic_shipping') or 2500)
+        group_name      = request.form.get('group_name', '').strip()
+        pool_name       = request.form.get('pool_name', '').strip()
+        payment_method  = request.form.get('payment_method', '위안화')
+        purchase_date   = request.form.get('purchase_date', '').strip()
+        cny             = float(request.form.get('purchase_price_cny') or 0)
+        krw             = int(request.form.get('purchase_price_krw') or 0)
+        exchange_rate   = float(request.form.get('exchange_rate') or 190)
+        card_company    = request.form.get('card_company', '').strip()
+        card_last4      = request.form.get('card_last4', '').strip()
+        card_info       = f'{card_company} {card_last4}'.strip() if (card_company or card_last4) else ''
+        customs_total   = int(request.form.get('customs_total') or 0)
+        shipping_total  = int(request.form.get('shipping_total') or 0)
+        yongdal_total   = int(request.form.get('yongdal_total') or 0)
+        naver_fee_rate  = float(request.form.get('naver_fee_rate') or 2.0)
+        domestic_ship   = int(request.form.get('domestic_shipping') or 2500)
         conn.execute("""UPDATE stock_pools SET
             group_name=?, pool_name=?,
+            payment_method=?, purchase_date=?,
+            purchase_price_cny=?, purchase_price_krw=?,
+            exchange_rate=?, card_info=?,
             customs_total=?, shipping_total=?, yongdal_total=?,
             naver_fee_rate=?, domestic_shipping=?
             WHERE id=?""",
-            (group_name, pool_name, customs_total, shipping_total, yongdal_total,
+            (group_name, pool_name,
+             payment_method, purchase_date, cny, krw,
+             exchange_rate, card_info,
+             customs_total, shipping_total, yongdal_total,
              naver_fee_rate, domestic_ship, pool_id))
         conn.commit()
         conn.close()

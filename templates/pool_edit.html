@@ -8,6 +8,8 @@
 </div>
 
 <form method="POST" action="/pool/{{ pool.id }}/edit">
+
+  {# ── 기본 정보 ── #}
   <div class="card" style="margin-bottom:14px">
     <div class="row2" style="gap:24px">
       <div class="form-group" style="margin:0">
@@ -22,6 +24,59 @@
       </div>
     </div>
   </div>
+
+  {# ── 사입 정보 ── #}
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">사입 정보</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+      <div class="form-group" style="margin:0">
+        <label>사입일</label>
+        <input type="date" name="purchase_date" class="form-control"
+               value="{{ pool.purchase_date or '' }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>결제방식</label>
+        <select name="payment_method" class="form-control" id="payMethod" onchange="togglePay(this.value)">
+          <option value="위안화" {% if pool.payment_method == '위안화' %}selected{% endif %}>위안화</option>
+          <option value="원화"   {% if pool.payment_method == '원화'   %}selected{% endif %}>원화</option>
+          <option value="카드"   {% if pool.payment_method == '카드'   %}selected{% endif %}>카드</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0" id="exchWrap">
+        <label>환율 (위안→원)</label>
+        <input type="number" name="exchange_rate" class="form-control" step="0.01"
+               value="{{ pool.exchange_rate or 190 }}">
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group" style="margin:0">
+        <label id="buyLabel">개당 사입가 (위안)</label>
+        <input type="number" name="purchase_price_cny" id="cnyInput" class="form-control" step="0.01"
+               value="{{ pool.purchase_price_cny or 0 }}">
+        <input type="number" name="purchase_price_krw" id="krwInput" class="form-control" step="1"
+               value="{{ pool.purchase_price_krw or 0 }}" style="display:none">
+      </div>
+      <div id="cardWrap" style="display:none">
+        {% set card_parts = (pool.card_info or '').split() %}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="form-group" style="margin:0">
+            <label>카드사</label>
+            <input type="text" name="card_company" class="form-control" placeholder="신한, 삼성..."
+                   value="{{ card_parts[0] if card_parts|length > 0 else '' }}">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>카드번호 뒤 4자리</label>
+            <input type="text" name="card_last4" class="form-control" maxlength="4"
+                   value="{{ card_parts[1] if card_parts|length > 1 else '' }}"
+                   oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── 비용 ── #}
   <div class="card" style="margin-bottom:14px">
     <div class="card-title">비용</div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
@@ -47,9 +102,26 @@
       </div>
     </div>
   </div>
+
   <div style="display:flex;gap:10px">
     <button type="submit" class="btn btn-primary">저장</button>
     <a href="/pool/{{ pool.id }}" class="btn btn-secondary">취소</a>
   </div>
 </form>
+
+<script>
+(function() {
+  togglePay(document.getElementById('payMethod').value);
+})();
+
+function togglePay(method) {
+  var isCny  = method === '위안화';
+  var isCard = method === '카드';
+  document.getElementById('exchWrap').style.opacity  = isCny ? '1' : '0.35';
+  document.getElementById('buyLabel').textContent    = isCny ? '개당 사입가 (위안)' : '개당 사입가 (원)';
+  document.getElementById('cnyInput').style.display  = isCny ? '' : 'none';
+  document.getElementById('krwInput').style.display  = isCny ? 'none' : '';
+  document.getElementById('cardWrap').style.display  = isCard ? '' : 'none';
+}
+</script>
 {% endblock %}
