@@ -123,31 +123,22 @@ function preview() {
     if (val !== '') priceMap[orig] = parseInt(val);
   });
 
-  // 그룹명 / 풀이름 자동 업데이트
-  document.getElementById('newGroup').value    = rep(origGroup);
-  document.getElementById('newPoolName').value = rep(origPool);
-
-  // 옵션 미리보기 업데이트
+  // 옵션 미리보기 업데이트 (옵션명 + 가격만)
   document.querySelectorAll('#previewBody tr').forEach(function(row) {
-    var store    = row.getAttribute('data-store');
-    var opt      = row.getAttribute('data-opt');
+    var opt       = row.getAttribute('data-opt');
     var origPrice = parseInt(row.getAttribute('data-price'));
-    var newStore = rep(store);
-    var newOpt   = rep(opt);
-    var newPrice = (origPrice in priceMap) ? priceMap[origPrice] : origPrice;
+    var newOpt    = rep(opt);
+    var newPrice  = (origPrice in priceMap) ? priceMap[origPrice] : origPrice;
 
-    var storeCell = row.querySelector('.store-cell');
     var optCell   = row.querySelector('.opt-cell span');
     var priceCell = row.querySelector('.price-cell');
 
-    storeCell.textContent = newStore || '-';
     optCell.textContent   = newOpt;
     priceCell.textContent = newPrice.toLocaleString() + '원';
 
-    storeCell.style.color      = (newStore !== store) ? '#4f46e5' : '#6b7280';
-    optCell.style.background   = (newOpt !== opt) ? '#4f46e5' : '';
-    optCell.style.color        = (newOpt !== opt) ? '#fff' : '';
-    priceCell.style.color      = (newPrice !== origPrice) ? '#4f46e5' : '';
+    optCell.style.background = (newOpt !== opt) ? '#4f46e5' : '';
+    optCell.style.color      = (newOpt !== opt) ? '#fff' : '';
+    priceCell.style.color    = (newPrice !== origPrice) ? '#4f46e5' : '';
   });
 }
 </script>

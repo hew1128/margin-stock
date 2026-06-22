@@ -993,7 +993,7 @@ def pool_copy(pool_id):
             conn.execute("""INSERT INTO pool_options
                 (pool_id, store_name, option_name, sale_price, product_type)
                 VALUES (?,?,?,?,?)""",
-                (new_id, rep(o['store_name'] or ''), rep(o['option_name']),
+                (new_id, o['store_name'] or '', rep(o['option_name']),
                  new_price, o['product_type']))
 
         conn.commit()
