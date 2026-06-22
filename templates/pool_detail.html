@@ -169,7 +169,7 @@
   <table>
     <thead>
       <tr>
-        <th>날짜</th><th>수량</th><th>결제방식</th><th>사입가</th><th>환율</th><th>메모</th>
+        <th>날짜</th><th>수량</th><th>결제방식</th><th>사입가</th><th>환율</th><th>메모</th><th></th>
       </tr>
     </thead>
     <tbody>
@@ -188,6 +188,12 @@
       </td>
       <td class="gray">{{ si.exchange_rate if si.payment_method == '위안화' else '-' }}</td>
       <td class="gray sm">{{ si.memo or '' }}</td>
+      <td>
+        <form method="POST" action="/pool/{{ pool.id }}/stockin/{{ si.id }}/delete"
+              onsubmit="return confirm('{{ si.date }} {{ si.quantity }}개 입고 이력을 삭제하시겠습니까?\n삭제하면 재고 수량이 변경됩니다.')">
+          <button type="submit" class="btn btn-danger btn-sm">삭제</button>
+        </form>
+      </td>
     </tr>
     {% endfor %}
     </tbody>

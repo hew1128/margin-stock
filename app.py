@@ -937,6 +937,16 @@ def pool_delete(pool_id):
     return redirect(url_for('pools_list'))
 
 
+@app.route('/pool/<int:pool_id>/stockin/<int:si_id>/delete', methods=['POST'])
+def pool_stockin_delete(pool_id, si_id):
+    conn = get_db()
+    conn.execute("DELETE FROM pool_stock_in WHERE id=? AND pool_id=?", (si_id, pool_id))
+    conn.commit()
+    conn.close()
+    flash('입고 이력이 삭제되었습니다.')
+    return redirect(url_for('pool_detail', pool_id=pool_id))
+
+
 @app.route('/pool/<int:pool_id>/copy', methods=['GET', 'POST'])
 def pool_copy(pool_id):
     conn = get_db()
