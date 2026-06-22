@@ -950,8 +950,6 @@ def pool_copy(pool_id):
     ).fetchall()
 
     if request.method == 'POST':
-        find_text    = request.form.get('find_text', '')
-        replace_text = request.form.get('replace_text', '')
         new_pool_name  = request.form.get('pool_name', '').strip()
         new_group_name = request.form.get('group_name', '').strip()
 
@@ -960,10 +958,8 @@ def pool_copy(pool_id):
             conn.close()
             return redirect(request.url)
 
-        def rep(text):
-            if find_text and text:
-                return text.replace(find_text, replace_text)
-            return text or ''
+        # 클라이언트에서 최종 확정된 옵션명 목록
+        final_names = request.form.getlist('final_option_names[]')
 
         orig_prices = request.form.getlist('orig_prices[]')
         new_prices  = request.form.getlist('new_prices[]')
@@ -981,19 +977,20 @@ def pool_copy(pool_id):
              customs_total, shipping_total, yongdal_total,
              naver_fee_rate, domestic_shipping)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (rep(new_group_name), new_pool_name,
+            (new_group_name, new_pool_name,
              pool['purchase_price_cny'], pool['purchase_price_krw'],
              pool['exchange_rate'], pool['payment_method'], pool['card_info'] or '',
              pool['customs_total'], pool['shipping_total'], pool['yongdal_total'],
              pool['naver_fee_rate'], pool['domestic_shipping']))
         new_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
 
-        for o in options:
-            new_price = price_map.get(o['sale_price'], o['sale_price'])
+        for i, o in enumerate(options):
+            final_name = final_names[i].strip() if i < len(final_names) else o['option_name']
+            new_price  = price_map.get(o['sale_price'], o['sale_price'])
             conn.execute("""INSERT INTO pool_options
                 (pool_id, store_name, option_name, sale_price, product_type)
                 VALUES (?,?,?,?,?)""",
-                (new_id, o['store_name'] or '', rep(o['option_name']),
+                (new_id, o['store_name'] or '', final_name,
                  new_price, o['product_type']))
 
         conn.commit()
