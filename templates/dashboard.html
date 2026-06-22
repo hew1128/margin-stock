@@ -24,64 +24,77 @@
   </div>
 </div>
 
-{# ── 그룹별 풀 테이블 (드래그로 순서 변경) ── #}
+{# ── 그룹별 풀 테이블 ── #}
 <div id="groupList">
 {% for gname in group_order %}
 {% set pool_list = groups[gname] %}
-<div class="group-card card" data-group="{{ gname }}"
-     style="margin-bottom:16px;padding:0;overflow:hidden">
+{% set gi = loop.index %}
+<div class="group-card" data-group="{{ gname }}" style="margin-bottom:10px;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.07)">
+
+  {# 헤더: 드래그 핸들 + 클릭으로 접기/펼치기 #}
   <div style="display:flex;align-items:center;justify-content:space-between;
-              padding:10px 16px;background:#16213e;color:#fff;cursor:grab;user-select:none"
-       class="drag-handle">
-    <div style="display:flex;align-items:center;gap:10px">
-      <span style="font-size:13px;color:rgba(255,255,255,.35);letter-spacing:1px;line-height:1">⠿</span>
-      <span style="font-size:15px;font-weight:700">{{ gname }}</span>
+              padding:11px 16px;background:#16213e;color:#fff;user-select:none">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="drag-handle"
+            style="font-size:13px;color:rgba(255,255,255,.3);cursor:grab;padding:0 4px;letter-spacing:1px;flex-shrink:0"
+            title="드래그해서 순서 변경">⠿</span>
+      <span style="display:flex;align-items:center;gap:8px;cursor:pointer"
+            onclick="togD('db{{gi}}','da{{gi}}')">
+        <span id="da{{gi}}" style="font-size:11px;color:rgba(255,255,255,.5);transition:transform .2s">▶</span>
+        <span style="font-size:15px;font-weight:700">{{ gname }}</span>
+      </span>
     </div>
     {% set g_stock = pool_list | sum(attribute='stock') %}
-    <span style="font-size:13px;font-weight:700;padding:4px 12px;border-radius:7px;
-                 background:{{ '#10b981' if g_stock > 10 else ('#f59e0b' if g_stock > 0 else '#ef4444') }}">
+    <span style="font-size:13px;font-weight:700;padding:4px 12px;border-radius:7px;cursor:pointer;
+                 background:{{ '#10b981' if g_stock > 10 else ('#f59e0b' if g_stock > 0 else '#ef4444') }}"
+          onclick="togD('db{{gi}}','da{{gi}}')">
       총 {{ g_stock }}개
     </span>
   </div>
-  <table>
-    <thead>
+
+  {# 테이블 (기본 숨김) #}
+  <div id="db{{gi}}" style="display:none;background:#fff">
+    <table>
+      <thead>
+        <tr>
+          <th>풀 이름</th>
+          <th class="tr">현재 재고</th>
+          <th class="tr">FIFO 사입가</th>
+          <th class="tr">옵션 수</th>
+          <th class="tr">최고 일반마진</th>
+          <th class="tr">최저 일반마진</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in pool_list %}
+      {% set pool = item.pool %}
       <tr>
-        <th>풀 이름</th>
-        <th class="tr">현재 재고</th>
-        <th class="tr">FIFO 사입가</th>
-        <th class="tr">옵션 수</th>
-        <th class="tr">최고 일반마진</th>
-        <th class="tr">최저 일반마진</th>
-        <th></th>
+        <td style="font-weight:600">{{ pool.pool_name }}</td>
+        <td class="tr">
+          <span style="font-weight:700;padding:3px 10px;border-radius:6px;
+                       background:{{ '#d1fae5' if item.stock > 10 else ('#fef3c7' if item.stock > 0 else '#fee2e2') }};
+                       color:{{ '#065f46' if item.stock > 10 else ('#92400e' if item.stock > 0 else '#991b1b') }}">
+            {{ item.stock }}개
+          </span>
+        </td>
+        <td class="tr" style="color:#6b7280">
+          {% if item.fifo %}{{ '{:,.0f}'.format(item.fifo) }}원{% else %}-{% endif %}
+        </td>
+        <td class="tr" style="color:#6b7280">{{ item.opt_count }}개</td>
+        <td class="tr" style="font-weight:700;color:{{ '#2563eb' if item.best_margin is not none and item.best_margin >= 0 else '#ef4444' }}">
+          {% if item.best_margin is not none %}{{ '{:,.0f}'.format(item.best_margin) }}원{% else %}-{% endif %}
+        </td>
+        <td class="tr" style="font-weight:700;color:{{ '#2563eb' if item.worst_margin is not none and item.worst_margin >= 0 else '#ef4444' }}">
+          {% if item.worst_margin is not none %}{{ '{:,.0f}'.format(item.worst_margin) }}원{% else %}-{% endif %}
+        </td>
+        <td><a href="/pool/{{ pool.id }}" class="btn btn-secondary btn-sm">상세</a></td>
       </tr>
-    </thead>
-    <tbody>
-    {% for item in pool_list %}
-    {% set pool = item.pool %}
-    <tr>
-      <td style="font-weight:600">{{ pool.pool_name }}</td>
-      <td class="tr">
-        <span style="font-weight:700;padding:3px 10px;border-radius:6px;
-                     background:{{ '#d1fae5' if item.stock > 10 else ('#fef3c7' if item.stock > 0 else '#fee2e2') }};
-                     color:{{ '#065f46' if item.stock > 10 else ('#92400e' if item.stock > 0 else '#991b1b') }}">
-          {{ item.stock }}개
-        </span>
-      </td>
-      <td class="tr" style="color:#6b7280">
-        {% if item.fifo %}{{ '{:,.0f}'.format(item.fifo) }}원{% else %}-{% endif %}
-      </td>
-      <td class="tr" style="color:#6b7280">{{ item.opt_count }}개</td>
-      <td class="tr" style="font-weight:700;color:{{ '#2563eb' if item.best_margin is not none and item.best_margin >= 0 else '#ef4444' }}">
-        {% if item.best_margin is not none %}{{ '{:,.0f}'.format(item.best_margin) }}원{% else %}-{% endif %}
-      </td>
-      <td class="tr" style="font-weight:700;color:{{ '#2563eb' if item.worst_margin is not none and item.worst_margin >= 0 else '#ef4444' }}">
-        {% if item.worst_margin is not none %}{{ '{:,.0f}'.format(item.worst_margin) }}원{% else %}-{% endif %}
-      </td>
-      <td><a href="/pool/{{ pool.id }}" class="btn btn-secondary btn-sm">상세</a></td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
 </div>
 {% endfor %}
 </div>
@@ -93,25 +106,33 @@
 {% endif %}
 
 <script>
+function togD(cid, aid) {
+  var el = document.getElementById(cid);
+  if (!el) return;
+  var open = el.style.display === 'none';
+  el.style.display = open ? '' : 'none';
+  var arr = document.getElementById(aid);
+  if (arr) arr.style.transform = open ? 'rotate(90deg)' : '';
+}
+
+// ── 그룹 순서 드래그 ──────────────────────────────────────────
 (function() {
   var list = document.getElementById('groupList');
   if (!list) return;
-
   var dragging = null;
 
-  list.querySelectorAll('.group-card').forEach(function(card) {
-    var handle = card.querySelector('.drag-handle');
-    handle.addEventListener('mousedown', function(e) {
-      dragging = card;
-      card.style.opacity = '0.55';
-      card.style.boxShadow = '0 4px 20px rgba(0,0,0,.2)';
-    });
+  document.addEventListener('mousedown', function(e) {
+    var handle = e.target.closest('.drag-handle');
+    if (!handle) return;
+    e.preventDefault();
+    dragging = handle.closest('.group-card');
+    dragging.style.opacity = '0.55';
+    dragging.style.boxShadow = '0 4px 20px rgba(0,0,0,.2)';
   });
 
   document.addEventListener('mousemove', function(e) {
     if (!dragging) return;
-    var cards = Array.from(list.querySelectorAll('.group-card'));
-    cards.forEach(function(c) {
+    Array.from(list.querySelectorAll('.group-card')).forEach(function(c) {
       if (c === dragging) return;
       var rect = c.getBoundingClientRect();
       var mid  = rect.top + rect.height / 2;
@@ -128,7 +149,6 @@
     dragging.style.opacity = '';
     dragging.style.boxShadow = '';
     dragging = null;
-    // 순서 저장
     var order = Array.from(list.querySelectorAll('.group-card')).map(function(c) {
       return c.dataset.group;
     });
