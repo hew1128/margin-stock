@@ -2064,7 +2064,7 @@ def analytics():
                so.date
         FROM pool_stock_out so
         JOIN pool_options po ON so.option_id = po.id
-        JOIN stock_pools sp ON so.pool_id = sp.id
+        JOIN stock_pools sp ON po.pool_id = sp.id
         WHERE so.date BETWEEN ? AND ?
         GROUP BY sp.id, po.id, so.date
         ORDER BY so.date DESC, sp.group_name, sp.pool_name, po.option_name
@@ -2089,7 +2089,7 @@ def analytics():
                SUM(so.quantity * po.sale_price) as total_revenue
         FROM pool_stock_out so
         JOIN pool_options po ON so.option_id = po.id
-        JOIN stock_pools sp ON so.pool_id = sp.id
+        JOIN stock_pools sp ON po.pool_id = sp.id
         WHERE so.date BETWEEN ? AND ?
         GROUP BY sp.id
         ORDER BY total_revenue DESC
@@ -2139,7 +2139,7 @@ def analytics_csv():
                so.order_number
         FROM pool_stock_out so
         JOIN pool_options po ON so.option_id = po.id
-        JOIN stock_pools sp ON so.pool_id = sp.id
+        JOIN stock_pools sp ON po.pool_id = sp.id
         WHERE so.date BETWEEN ? AND ?
         ORDER BY so.date DESC, sp.group_name, sp.pool_name
     """, (start, end)).fetchall()
