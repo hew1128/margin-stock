@@ -1668,23 +1668,54 @@ def stock_upload():
             conn_p.close()
             results, unmatched = [], []
 
+            # CJ택배 vs 롯데택배 자동 감지
+            # CJ: 헤더 G열 = "받는분주소", 상품명은 J열 / 롯데: G열이 상품명
+            header_g = str(ws.cell_value(0, 6)).strip() if ws.nrows > 0 else ''
+            is_cj = '주소' in header_g
+
             for ri in range(1, ws.nrows):
-                g_val = str(ws.cell_value(ri, 6))   # G열: 상품명+옵션+수량
-                j_val = str(ws.cell_value(ri, 9))   # J열: 배송메세지 (fallback)
-                order = str(ws.cell_value(ri, 0))   # A열: 주문번호
+                if is_cj:
+                    raw   = str(ws.cell_value(ri, 9))   # J열: 품목명(상품+옵션+수량)
+                    order = str(ws.cell_value(ri, 8))   # I열: 고객주문번호
+                else:
+                    raw   = str(ws.cell_value(ri, 6))   # G열: 상품명+옵션+수량
+                    order = str(ws.cell_value(ri, 0))   # A열: 주문번호
 
-                # G열에서 옵션명 추출: "옵션: 기본 연결형☞18EA"
-                opt_m = re.search(r'옵션[:\s]*(.+?)☞', g_val)
-                option_str = opt_m.group(1).strip() if opt_m else ''
-
-                # G열에서 수량 추출: "☞18EA"
-                qty_m = re.search(r'☞(\d+)\s*EA', g_val, re.IGNORECASE)
-                if not qty_m:
-                    # fallback: J열 "(총N개)"
-                    qty_m = re.search(r'총(\d+)개', j_val)
-                if not qty_m:
-                    unmatched.append({'order': order, 'name': g_val[:50], 'reason': '수량 파싱 불가'})
+                if not raw or not raw.strip():
                     continue
+
+                g_val = raw  # 매칭에 사용할 상품명+옵션 전체 문자열
+
+                # 수량 추출: ☞NEA (공통)
+                qty_m = re.search(r'☞(\d+)\s*EA', raw, re.IGNORECASE)
+                if not qty_m:
+                    if is_cj:
+                        fb = str(ws.cell_value(ri, 13))  # N열: 배송메세지1 "(총N개)"
+                    else:
+                        fb = str(ws.cell_value(ri, 9))   # 롯데 J열 fallback
+                    qty_m = re.search(r'총(\d+)개', fb)
+                if not qty_m:
+                    if raw.strip():
+                        unmatched.append({'order': order, 'name': raw[:50], 'reason': '수량 파싱 불가'})
+                    continue
+
+                qty = int(qty_m.group(1))
+
+                # 옵션명 추출
+                if is_cj:
+                    # CJ 형식: "상품명/사이즈: 대형 / 색상: 블랙 / 거치방식: 흡착형☞1EA"
+                    # 또는 "상품명: 옵션값☞1EA"
+                    opt_parts = re.findall(r'[/:]([^/:☞]+?)(?=[/:]|☞|$)', raw)
+                    # ':' 뒤 값들만 정제: 키워드가 있는 부분만 (앞에 키:가 붙은 경우)
+                    colon_vals = re.findall(r':\s*([^:/☞]+?)(?=\s*/|\s*☞|$)', raw)
+                    option_str = ' '.join(v.strip() for v in colon_vals if v.strip())
+                    if not option_str:
+                        slash_m = re.search(r'/(.+?)☞', raw)
+                        option_str = slash_m.group(1).strip() if slash_m else ''
+                else:
+                    # 롯데 형식: "옵션: 기본 연결형☞18EA"
+                    opt_m = re.search(r'옵션[:\s]*(.+?)☞', raw)
+                    option_str = opt_m.group(1).strip() if opt_m else ''
 
                 qty = int(qty_m.group(1))
 
