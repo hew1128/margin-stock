@@ -1,0 +1,387 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="ph">
+  <div>
+    <a href="/pools" style="font-size:13px;color:#6b7280;text-decoration:none">← 재고 풀 목록</a>
+    <h1 style="margin-top:4px">{{ pool.group_name }} / {{ pool.pool_name }}</h1>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button onclick="openRestock()" class="btn btn-success">재사입</button>
+    <a href="/pool/{{ pool.id }}/edit" class="btn btn-secondary">풀 수정</a>
+    <form method="POST" action="/pool/{{ pool.id }}/delete"
+          onsubmit="return confirm('이 풀을 삭제하시겠습니까?')">
+      <button type="submit" class="btn btn-danger">삭제</button>
+    </form>
+  </div>
+</div>
+
+{# ── 요약 카드 ── #}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px">
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">현재 재고</div>
+    <div style="font-size:28px;font-weight:800;
+                color:{{ '#10b981' if current_stock > 10 else ('#f59e0b' if current_stock > 0 else '#ef4444') }}">
+      {{ current_stock }}개
+    </div>
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">FIFO 사입가</div>
+    <div style="font-size:20px;font-weight:700;color:#111">
+      {% if fifo_cost %}{{ '{:,.0f}'.format(fifo_cost) }}원{% else %}-{% endif %}
+    </div>
+    <div style="font-size:11px;color:#9ca3af">현재 재고 기준</div>
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">결제방식</div>
+    <div style="font-size:15px;font-weight:700;color:#111">{{ pool.payment_method }}</div>
+    {% if pool.payment_method == '위안화' %}
+    <div style="font-size:12px;color:#6b7280">{{ pool.purchase_price_cny }}위안 × {{ pool.exchange_rate }}</div>
+    {% elif pool.purchase_price_krw > 0 %}
+    <div style="font-size:12px;color:#6b7280">{{ '{:,}'.format(pool.purchase_price_krw) }}원</div>
+    {% endif %}
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">비용</div>
+    <div style="font-size:13px;color:#374151">
+      관세 {{ '{:,}'.format(pool.customs_total) }}<br>
+      운송 {{ '{:,}'.format(pool.shipping_total) }}<br>
+      용달 {{ '{:,}'.format(pool.yongdal_total) }}
+    </div>
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">수수료 / 택배</div>
+    <div style="font-size:13px;color:#374151">
+      네이버 {{ pool.naver_fee_rate }}%<br>
+      택배 {{ '{:,}'.format(pool.domestic_shipping) }}원
+    </div>
+  </div>
+</div>
+
+{# ── 옵션 목록 ── #}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-title">옵션 목록</div>
+
+  {% if opt_data %}
+  <table style="margin-bottom:16px">
+    <thead>
+      <tr>
+        <th>스토어 상품명</th>
+        <th>옵션명</th>
+        <th>타입</th>
+        <th class="tr">판매가</th>
+        <th class="tr">간이마진</th>
+        <th class="tr">일반마진</th>
+        <th>키워드</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for od in opt_data %}
+    {% set o = od.o %}
+    <tr>
+      <td style="max-width:180px;font-size:13px">{{ o.store_name or '-' }}</td>
+      <td><span class="badge bg-blue" style="font-size:13px">{{ o.option_name }}</span></td>
+      <td>
+        {% set tc = {'opt1':'#3b82f6','add1':'#f59e0b','add2':'#f97316','add3':'#84cc16','gift':'#ef4444'} %}
+        <span style="font-size:12px;padding:3px 8px;border-radius:6px;background:{{ tc.get(o.product_type,'#6b7280') }}20;color:{{ tc.get(o.product_type,'#6b7280') }};font-weight:600">
+          {{ od.type_label }}
+        </span>
+      </td>
+      <td class="tr bold">{{ '{:,}'.format(o.sale_price) }}원</td>
+      {% if od.m %}
+      <td class="tr" style="color:{{ '#10b981' if od.m.simple_margin >= 0 else '#ef4444' }};font-weight:700">
+        {{ '{:,.0f}'.format(od.m.simple_margin) }}원
+        <div style="font-size:10px;font-weight:400;color:#9ca3af">{{ '{:.1f}'.format(od.m.simple_margin_rate) }}%</div>
+      </td>
+      <td class="tr" style="color:{{ '#2563eb' if od.m.general_margin >= 0 else '#ef4444' }};font-weight:700">
+        {{ '{:,.0f}'.format(od.m.general_margin) }}원
+        <div style="font-size:10px;font-weight:400;color:#9ca3af">{{ '{:.1f}'.format(od.m.general_margin_rate) }}%</div>
+      </td>
+      {% else %}
+      <td class="tc gray">-</td><td class="tc gray">-</td>
+      {% endif %}
+      <td style="font-size:11px;color:#9ca3af">
+        {% for kw in od.kws %}<span style="background:#f3f4f6;padding:2px 6px;border-radius:4px;margin-right:3px">{{ kw }}</span>{% endfor %}
+      </td>
+      <td>
+        <div style="display:flex;gap:5px">
+          <button onclick="openEdit({{ o.id }}, '{{ o.store_name or '' }}', '{{ o.option_name }}', {{ o.sale_price }}, '{{ o.product_type }}', [{% for kw in od.kws %}'{{ kw }}'{% if not loop.last %},{% endif %}{% endfor %}])"
+                  class="btn btn-secondary btn-sm">수정</button>
+          <form method="POST" action="/pool/{{ pool.id }}/option/{{ o.id }}/delete"
+                onsubmit="return confirm('삭제하시겠습니까?')">
+            <button type="submit" class="btn btn-danger btn-sm">삭제</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color:#aaa;text-align:center;padding:20px 0;margin-bottom:12px">
+    등록된 옵션이 없습니다. 아래 폼에서 추가하세요.
+  </div>
+  {% endif %}
+
+  {# 옵션 추가 폼 #}
+  <div id="add-option" style="background:#f8f9fa;border-radius:10px;padding:18px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:#374151">옵션 추가</div>
+    <form method="POST" action="/pool/{{ pool.id }}/option/add">
+
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="form-group" style="margin:0">
+          <label>스토어 상품명 <span style="font-weight:400;color:#9ca3af">(판매 추이 확인용)</span></label>
+          <input type="text" name="store_name" class="form-control"
+                 placeholder="예: [텃밭 농약줄] 꼬임방지기 고급형">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>옵션명 <span style="color:#ef4444">*</span> <span style="font-weight:400;color:#9ca3af">(매칭용)</span></label>
+          <input type="text" name="option_name" class="form-control" required
+                 placeholder="예: 기본 일체형">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>판매가 (원) <span style="color:#ef4444">*</span></label>
+          <input type="number" name="sale_price" class="form-control" required value="0">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>타입</label>
+          <select name="product_type" class="form-control">
+            <option value="opt1">판매 상품</option>
+            <option value="add1">추가옵션1</option>
+            <option value="add2">추가옵션2</option>
+            <option value="add3">추가옵션3</option>
+            <option value="gift">사은품</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:12px">
+        <label>추가 키워드 <span style="font-weight:400;color:#9ca3af">(발송파일 G열 추가 매칭)</span></label>
+        <div id="kwRows">
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <input type="text" name="keywords[]" class="form-control"
+                   placeholder="예: 텃밭 농약줄 꼬임방지기">
+            <button type="button" onclick="addKw()" class="btn btn-secondary btn-sm" style="white-space:nowrap">+ 추가</button>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">옵션 추가</button>
+    </form>
+  </div>
+</div>
+
+{# ── 입고 이력 ── #}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-title">입고 이력</div>
+  {% if stock_ins %}
+  <table>
+    <thead>
+      <tr>
+        <th>날짜</th><th>수량</th><th>결제방식</th><th>사입가</th><th>환율</th><th>메모</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for si in stock_ins %}
+    <tr>
+      <td>{{ si.date }}</td>
+      <td class="bold">{{ si.quantity }}개</td>
+      <td>{{ si.payment_method or '위안화' }}</td>
+      <td>
+        {% if si.payment_method in ('원화','카드') and si.purchase_price_krw %}
+          {{ '{:,}'.format(si.purchase_price_krw) }}원
+          {% if si.card_info %}<span class="gray sm"> ({{ si.card_info }})</span>{% endif %}
+        {% elif si.purchase_price_cny %}
+          {{ si.purchase_price_cny }}위안
+        {% else %}-{% endif %}
+      </td>
+      <td class="gray">{{ si.exchange_rate if si.payment_method == '위안화' else '-' }}</td>
+      <td class="gray sm">{{ si.memo or '' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color:#aaa;text-align:center;padding:20px">입고 이력이 없습니다.</div>
+  {% endif %}
+</div>
+
+{# 재사입 모달 #}
+<div id="restockModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:999;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:28px;width:420px;box-shadow:0 8px 32px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto">
+    <div style="font-size:16px;font-weight:700;margin-bottom:4px">재사입</div>
+    <div style="font-size:13px;color:#4f46e5;font-weight:600;margin-bottom:18px">{{ pool.pool_name }}</div>
+    <form method="POST" action="/pool/{{ pool.id }}/restock">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="form-group" style="margin:0">
+          <label>사입일</label>
+          <input type="date" name="date" id="restockDate" class="form-control">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>수량 (개)</label>
+          <input type="number" name="quantity" class="form-control" min="1" placeholder="0" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>결제방식</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          {% for m,c in [('위안화','#3b82f6'),('원화','#10b981'),('카드','#f59e0b')] %}
+          <label style="cursor:pointer">
+            <input type="radio" name="payment_method" value="{{ m }}"
+                   {% if m==pool.payment_method or (loop.first and not pool.payment_method) %}checked{% endif %}
+                   style="display:none" onchange="rTogglePay('{{ m }}')">
+            <span id="rpay_{{ m }}" style="display:inline-block;padding:6px 14px;border:2px solid {{ c }};border-radius:7px;font-size:13px;font-weight:600;
+                  background:{% if m==pool.payment_method %}{{ c }}{% else %}#fff{% endif %};
+                  color:{% if m==pool.payment_method %}#fff{% else %}#374151{% endif %};transition:all .15s">{{ m }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="form-group" style="margin:0">
+          <label id="rBuyLabel">사입가 ({{ '위안' if pool.payment_method == '위안화' else '원' }})</label>
+          <input type="number" name="purchase_price_cny" id="rCnyInput" class="form-control" step="0.01" placeholder="0"
+                 {% if pool.payment_method != '위안화' %}style="display:none"{% endif %}>
+          <input type="number" name="purchase_price_krw" id="rKrwInput" class="form-control" step="1" placeholder="0"
+                 {% if pool.payment_method == '위안화' %}style="display:none"{% endif %}>
+        </div>
+        <div class="form-group" style="margin:0" id="rRateWrap"
+             {% if pool.payment_method != '위안화' %}style="opacity:0.35"{% endif %}>
+          <label>환율 (위안→원)</label>
+          <input type="number" name="exchange_rate" id="rRateInput" class="form-control" step="0.01"
+                 value="{{ pool.exchange_rate }}">
+        </div>
+      </div>
+
+      <div id="rCardWrap" style="display:{% if pool.payment_method == '카드' %}{% else %}none{% endif %};margin-bottom:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group" style="margin:0">
+            <label>카드사</label>
+            <input type="text" name="card_company" class="form-control" placeholder="신한, 삼성...">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>카드번호 뒤 4자리</label>
+            <input type="text" name="card_last4" class="form-control" maxlength="4" placeholder="1234"
+                   oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+          </div>
+        </div>
+      </div>
+
+      <div class="flex mt">
+        <button type="submit" class="btn btn-success">재사입 완료</button>
+        <button type="button" onclick="closeRestock()" class="btn btn-secondary">취소</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# 옵션 수정 모달 #}
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:999;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:28px;width:500px;box-shadow:0 8px 32px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto">
+    <div style="font-size:16px;font-weight:700;margin-bottom:18px">옵션 수정</div>
+    <form id="editForm" method="POST">
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="form-group" style="margin:0">
+          <label>스토어 상품명</label>
+          <input type="text" name="store_name" id="editStoreName" class="form-control">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>타입</label>
+          <select name="product_type" id="editType" class="form-control">
+            <option value="opt1">판매 상품</option>
+            <option value="add1">추가옵션1</option>
+            <option value="add2">추가옵션2</option>
+            <option value="add3">추가옵션3</option>
+            <option value="gift">사은품</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="form-group" style="margin:0">
+          <label>옵션명 <span style="color:#ef4444">*</span></label>
+          <input type="text" name="option_name" id="editOptName" class="form-control" required>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>판매가 (원)</label>
+          <input type="number" name="sale_price" id="editPrice" class="form-control">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:14px">
+        <label>추가 키워드</label>
+        <div id="editKwRows"></div>
+        <button type="button" onclick="addEditKw()" class="btn btn-secondary btn-sm" style="margin-top:4px">+ 키워드 추가</button>
+      </div>
+      <div class="flex">
+        <button type="submit" class="btn btn-primary">저장</button>
+        <button type="button" onclick="closeEdit()" class="btn btn-secondary">취소</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openRestock() {
+  document.getElementById('restockDate').value = new Date().toISOString().slice(0,10);
+  document.getElementById('restockModal').style.display = 'flex';
+}
+function closeRestock() {
+  document.getElementById('restockModal').style.display = 'none';
+}
+
+var PAY_COLORS = {'위안화':'#3b82f6','원화':'#10b981','카드':'#f59e0b'};
+function rTogglePay(method) {
+  Object.keys(PAY_COLORS).forEach(function(m) {
+    var el = document.getElementById('rpay_' + m);
+    if (!el) return;
+    el.style.background = m === method ? PAY_COLORS[m] : '#fff';
+    el.style.color      = m === method ? '#fff' : '#374151';
+    el.style.borderColor = PAY_COLORS[m];
+  });
+  var isCny = method === '위안화', isCard = method === '카드';
+  document.getElementById('rBuyLabel').textContent  = isCny ? '사입가 (위안)' : '사입가 (원)';
+  document.getElementById('rCnyInput').style.display = isCny ? '' : 'none';
+  document.getElementById('rKrwInput').style.display = isCny ? 'none' : '';
+  document.getElementById('rRateWrap').style.opacity = isCny ? '1' : '0.35';
+  document.getElementById('rCardWrap').style.display = isCard ? '' : 'none';
+}
+
+function openEdit(optId, storeName, optName, price, ptype, kws) {
+  document.getElementById('editForm').action = '/pool/{{ pool.id }}/option/' + optId + '/edit';
+  document.getElementById('editStoreName').value = storeName || '';
+  document.getElementById('editOptName').value   = optName || '';
+  document.getElementById('editPrice').value     = price || 0;
+  document.getElementById('editType').value      = ptype || 'opt1';
+  var kwDiv = document.getElementById('editKwRows');
+  kwDiv.innerHTML = '';
+  (kws || []).forEach(function(kw) { appendEditKw(kw); });
+  if (!kws || !kws.length) appendEditKw('');
+  document.getElementById('editModal').style.display = 'flex';
+}
+function closeEdit() {
+  document.getElementById('editModal').style.display = 'none';
+}
+function appendEditKw(val) {
+  var div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px';
+  div.innerHTML = '<input type="text" name="keywords[]" class="form-control" value="' + val + '">'
+    + '<button type="button" onclick="this.parentElement.remove()" class="btn btn-danger btn-sm">삭제</button>';
+  document.getElementById('editKwRows').appendChild(div);
+}
+function addEditKw() { appendEditKw(''); }
+
+function addKw() {
+  var div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px';
+  div.innerHTML = '<input type="text" name="keywords[]" class="form-control" placeholder="추가 키워드...">'
+    + '<button type="button" onclick="this.parentElement.remove()" class="btn btn-danger btn-sm">삭제</button>';
+  document.getElementById('kwRows').appendChild(div);
+}
+
+document.getElementById('restockModal').addEventListener('click', function(e){ if(e.target===this) closeRestock(); });
+document.getElementById('editModal').addEventListener('click', function(e){ if(e.target===this) closeEdit(); });
+</script>
+{% endblock %}

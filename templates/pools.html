@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div>
+    <h1>재고 풀</h1>
+    <p>그룹 → 풀 → 옵션 구조로 재고를 관리합니다</p>
+  </div>
+  <a href="/pool/new" class="btn btn-primary">+ 풀 등록</a>
+</div>
+
+{% if groups %}
+{% for gname in group_order %}
+{% set pool_list = groups[gname] %}
+{% set gi = loop.index %}
+
+<div style="margin-bottom:16px">
+
+  {# ── 그룹 헤더 ── #}
+  <div style="display:flex;align-items:center;justify-content:space-between;
+              padding:13px 20px;background:#16213e;color:#fff;
+              border-radius:10px 10px 0 0;cursor:pointer;user-select:none"
+       onclick="togG('g{{gi}}','ga{{gi}}')">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span id="ga{{gi}}" style="font-size:11px;color:rgba(255,255,255,.5);transition:transform .2s">▶</span>
+      <span style="font-size:16px;font-weight:700">{{ gname }}</span>
+      <span style="font-size:12px;background:rgba(255,255,255,.15);padding:3px 10px;border-radius:6px">
+        풀 {{ pool_list|length }}개
+      </span>
+    </div>
+    {% set total_stock = pool_list | sum(attribute='stock') %}
+    <span style="font-size:14px;font-weight:700;padding:5px 14px;border-radius:8px;
+                 background:{{ '#10b981' if total_stock > 10 else ('#f59e0b' if total_stock > 0 else '#ef4444') }}">
+      총재고 {{ total_stock }}개
+    </span>
+  </div>
+
+  {# ── 풀 목록 ── #}
+  <div id="g{{gi}}" style="display:none;border:1px solid #e5e7eb;border-top:none;
+       border-radius:0 0 10px 10px;overflow:hidden">
+
+  {% for item in pool_list %}
+  {% set pool = item.pool %}
+  {% set stock = item.stock %}
+  {% set fifo = item.fifo %}
+  {% set pi = loop.index %}
+
+  <div style="border-bottom:1px solid #f1f1f1">
+
+    {# 풀 행 #}
+    <div onclick="togG('p{{gi}}_{{pi}}','pa{{gi}}_{{pi}}')"
+         style="display:flex;align-items:center;justify-content:space-between;
+                padding:12px 24px;background:#fff;cursor:pointer;user-select:none"
+         onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background='#fff'">
+
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+        <span id="pa{{gi}}_{{pi}}" style="font-size:11px;color:#bbb;transition:transform .2s;flex-shrink:0">▶</span>
+        <div style="min-width:0">
+          <div style="font-size:15px;font-weight:700">{{ pool.pool_name }}</div>
+          <div style="font-size:11px;color:#9ca3af;margin-top:1px">
+            옵션 {{ pool.option_count }}개
+            {% if pool.purchase_date %} · {{ pool.purchase_date }}{% endif %}
+            {% if pool.payment_method == '위안화' and pool.purchase_price_cny > 0 %}
+              · {{ pool.purchase_price_cny }}위안 × {{ pool.exchange_rate }}
+            {% elif pool.purchase_price_krw > 0 %}
+              · {{ '{:,}'.format(pool.purchase_price_krw) }}원 ({{ pool.payment_method }})
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0" onclick="event.stopPropagation()">
+        {% if fifo %}
+        <div style="font-size:11px;color:#9ca3af;text-align:right">
+          <div>FIFO {{ '{:,.0f}'.format(fifo) }}원</div>
+        </div>
+        {% endif %}
+        <span style="font-size:13px;font-weight:700;padding:5px 12px;border-radius:8px;
+                     background:{{ '#d1fae5' if stock > 10 else ('#fef3c7' if stock > 0 else '#fee2e2') }};
+                     color:{{ '#065f46' if stock > 10 else ('#92400e' if stock > 0 else '#991b1b') }}">
+          {{ stock }}개
+        </span>
+        <a href="/pool/{{ pool.id }}" class="btn btn-secondary btn-sm">상세</a>
+        <button onclick="openRestock({{ pool.id }}, '{{ pool.pool_name }}')"
+                class="btn btn-success btn-sm">재사입</button>
+      </div>
+    </div>
+
+    {# 옵션 미리보기 #}
+    <div id="p{{gi}}_{{pi}}" style="display:none;background:#f8f9fa;padding:10px 44px 14px;border-top:1px solid #f1f1f1">
+      <a href="/pool/{{ pool.id }}" style="font-size:13px;color:#4f46e5;text-decoration:none;font-weight:600">
+        풀 상세 / 옵션 관리 →
+      </a>
+    </div>
+
+  </div>
+  {% endfor %}
+
+  <div style="padding:12px 20px;background:#f9fafb;border-top:1px solid #f1f1f1">
+    <a href="/pool/new?group={{ gname }}" class="btn btn-secondary btn-sm">+ 이 그룹에 풀 추가</a>
+  </div>
+
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="card" style="padding:60px;text-align:center;color:#aaa">
+  등록된 재고 풀이 없습니다. <a href="/pool/new" style="color:#4f46e5">풀 등록하기 →</a>
+</div>
+{% endif %}
+
+{# 재사입 모달 #}
+<div id="restockModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:999;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:28px;width:420px;box-shadow:0 8px 32px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto">
+    <div style="font-size:16px;font-weight:700;margin-bottom:4px">재사입</div>
+    <div id="restockPoolName" style="font-size:13px;color:#4f46e5;font-weight:600;margin-bottom:18px"></div>
+    <form id="restockForm" method="POST">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="form-group" style="margin:0">
+          <label>사입일</label>
+          <input type="date" name="date" id="restockDate" class="form-control">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>수량 (개)</label>
+          <input type="number" name="quantity" class="form-control" min="1" placeholder="0" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>결제방식</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          {% for m,c in [('위안화','#3b82f6'),('원화','#10b981'),('카드','#f59e0b')] %}
+          <label style="cursor:pointer">
+            <input type="radio" name="payment_method" value="{{ m }}"
+                   {% if m=='위안화' %}checked{% endif %}
+                   style="display:none" onchange="rTogglePay('{{ m }}')">
+            <span id="rpay_{{ m }}" style="display:inline-block;padding:6px 14px;border:2px solid {{ c }};border-radius:7px;font-size:13px;font-weight:600;
+                  background:{{ c }};color:#fff;transition:all .15s">{{ m }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="form-group" style="margin:0">
+          <label id="rBuyLabel">사입가 (위안)</label>
+          <input type="number" name="purchase_price_cny" id="rCnyInput" class="form-control" step="0.01" placeholder="0">
+          <input type="number" name="purchase_price_krw" id="rKrwInput" class="form-control" step="1" placeholder="0" style="display:none">
+        </div>
+        <div class="form-group" style="margin:0" id="rRateWrap">
+          <label>환율 (위안→원)</label>
+          <input type="number" name="exchange_rate" id="rRateInput" class="form-control" step="0.01" value="190">
+        </div>
+      </div>
+
+      <div id="rCardWrap" style="display:none;margin-bottom:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group" style="margin:0">
+            <label>카드사</label>
+            <input type="text" name="card_company" class="form-control" placeholder="신한, 삼성...">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>카드번호 뒤 4자리</label>
+            <input type="text" name="card_last4" class="form-control" maxlength="4" placeholder="1234"
+                   oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+          </div>
+        </div>
+      </div>
+
+      <div class="flex mt">
+        <button type="submit" class="btn btn-success">재사입 완료</button>
+        <button type="button" onclick="closeRestock()" class="btn btn-secondary">취소</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+var PAY_COLORS = {'위안화':'#3b82f6','원화':'#10b981','카드':'#f59e0b'};
+
+function togG(cid, aid) {
+  var el = document.getElementById(cid);
+  if (!el) return;
+  var open = el.style.display === 'none';
+  el.style.display = open ? '' : 'none';
+  var arr = document.getElementById(aid);
+  if (arr) arr.style.transform = open ? 'rotate(90deg)' : '';
+}
+
+function rTogglePay(method) {
+  Object.keys(PAY_COLORS).forEach(function(m) {
+    var el = document.getElementById('rpay_' + m);
+    if (!el) return;
+    el.style.background = m === method ? PAY_COLORS[m] : '#fff';
+    el.style.color      = m === method ? '#fff' : '#374151';
+    el.style.borderColor = PAY_COLORS[m];
+  });
+  var isCny = method === '위안화', isCard = method === '카드';
+  document.getElementById('rBuyLabel').textContent = isCny ? '사입가 (위안)' : '사입가 (원)';
+  document.getElementById('rCnyInput').style.display  = isCny ? '' : 'none';
+  document.getElementById('rKrwInput').style.display  = isCny ? 'none' : '';
+  document.getElementById('rRateWrap').style.opacity  = isCny ? '1' : '0.35';
+  document.getElementById('rCardWrap').style.display  = isCard ? '' : 'none';
+}
+
+function openRestock(poolId, name) {
+  document.getElementById('restockForm').action = '/pool/' + poolId + '/restock';
+  document.getElementById('restockPoolName').textContent = name;
+  document.getElementById('restockDate').value = new Date().toISOString().slice(0,10);
+  rTogglePay('위안화');
+  var r = document.querySelector('#restockForm input[name=payment_method][value=위안화]');
+  if (r) r.checked = true;
+  document.getElementById('restockModal').style.display = 'flex';
+}
+function closeRestock() {
+  document.getElementById('restockModal').style.display = 'none';
+}
+document.getElementById('restockModal').addEventListener('click', function(e) {
+  if (e.target === this) closeRestock();
+});
+</script>
+{% endblock %}

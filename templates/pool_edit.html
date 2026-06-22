@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div>
+    <a href="/pool/{{ pool.id }}" style="font-size:13px;color:#6b7280;text-decoration:none">← 풀 상세</a>
+    <h1 style="margin-top:4px">풀 수정</h1>
+  </div>
+</div>
+
+<form method="POST" action="/pool/{{ pool.id }}/edit">
+  <div class="card" style="margin-bottom:14px">
+    <div class="row2" style="gap:24px">
+      <div class="form-group" style="margin:0">
+        <label>그룹명 <span style="color:#ef4444">*</span></label>
+        <input type="text" name="group_name" class="form-control" required value="{{ pool.group_name }}"
+               style="font-size:15px;font-weight:600">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>풀 이름 <span style="color:#ef4444">*</span></label>
+        <input type="text" name="pool_name" class="form-control" required value="{{ pool.pool_name }}"
+               style="font-size:15px">
+      </div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">비용</div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+      <div class="form-group" style="margin:0">
+        <label>관세 합계 (원)</label>
+        <input type="number" name="customs_total" class="form-control" value="{{ pool.customs_total }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>운송비 합계 (원)</label>
+        <input type="number" name="shipping_total" class="form-control" value="{{ pool.shipping_total }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>용달 합계 (원)</label>
+        <input type="number" name="yongdal_total" class="form-control" value="{{ pool.yongdal_total }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>네이버 수수료 (%)</label>
+        <input type="number" name="naver_fee_rate" class="form-control" step="0.01" value="{{ pool.naver_fee_rate }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>국내 택배비 (원)</label>
+        <input type="number" name="domestic_shipping" class="form-control" value="{{ pool.domestic_shipping }}">
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;gap:10px">
+    <button type="submit" class="btn btn-primary">저장</button>
+    <a href="/pool/{{ pool.id }}" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+{% endblock %}

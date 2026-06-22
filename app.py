@@ -187,6 +187,136 @@ def init_db():
         date_str = (p['created_at'] or '')[:10] or datetime.now().strftime('%Y-%m-%d')
         c.execute("INSERT INTO stock_in (product_id, quantity, exchange_rate, date, memo) VALUES (?,?,?,?,?)",
             (p['id'], p['import_quantity'], p['exchange_rate'], date_str, '자동 초기 입고'))
+
+    # ── 재고 풀 신규 테이블 ──────────────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS stock_pools (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_name TEXT NOT NULL,
+        pool_name TEXT NOT NULL,
+        purchase_date TEXT,
+        purchase_price_cny REAL DEFAULT 0,
+        purchase_price_krw INTEGER DEFAULT 0,
+        exchange_rate REAL DEFAULT 190,
+        payment_method TEXT DEFAULT '위안화',
+        card_info TEXT DEFAULT '',
+        customs_total INTEGER DEFAULT 0,
+        shipping_total INTEGER DEFAULT 0,
+        yongdal_total INTEGER DEFAULT 0,
+        naver_fee_rate REAL DEFAULT 2.0,
+        domestic_shipping INTEGER DEFAULT 2500,
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS pool_options (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pool_id INTEGER NOT NULL,
+        store_name TEXT DEFAULT '',
+        option_name TEXT NOT NULL,
+        sale_price INTEGER DEFAULT 0,
+        product_type TEXT DEFAULT 'opt1',
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS option_keywords (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        option_id INTEGER NOT NULL,
+        keyword TEXT NOT NULL
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS pool_stock_in (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pool_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL,
+        purchase_price_cny REAL DEFAULT 0,
+        purchase_price_krw INTEGER DEFAULT 0,
+        exchange_rate REAL DEFAULT 190,
+        payment_method TEXT DEFAULT '위안화',
+        card_info TEXT DEFAULT '',
+        date TEXT NOT NULL,
+        memo TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS pool_stock_out (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        option_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        source TEXT DEFAULT 'manual',
+        file_name TEXT,
+        order_number TEXT,
+        memo TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    # ── 기존 products → pool 마이그레이션 (pool이 0개일 때 1회 실행) ──────────
+    pool_count = c.execute("SELECT COUNT(*) as cnt FROM stock_pools").fetchone()['cnt']
+    if pool_count == 0:
+        old_prods = c.execute("SELECT * FROM products WHERE is_active=1 ORDER BY id").fetchall()
+        for p in old_prods:
+            pg    = (p['product_group'] or '').strip() or p['name']
+            pname = (p['option_name'] or '').strip() or p['name']
+            keys  = p.keys()
+            method  = (p['payment_method']    if 'payment_method'    in keys else None) or '위안화'
+            krw     = (p['purchase_price_krw'] if 'purchase_price_krw' in keys else None) or 0
+            card    = (p['payment_card_info']  if 'payment_card_info'  in keys else None) or ''
+            ptype   = (p['product_type']       if 'product_type'       in keys else None) or 'opt1'
+            pdate   = (p['purchase_date']      if 'purchase_date'      in keys else None)
+
+            c.execute("""INSERT INTO stock_pools
+                (group_name, pool_name, purchase_date,
+                 purchase_price_cny, purchase_price_krw, exchange_rate,
+                 payment_method, card_info,
+                 customs_total, shipping_total, yongdal_total,
+                 naver_fee_rate, domestic_shipping)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (pg, pname, pdate,
+                 p['purchase_price_cny'] or 0, krw, p['exchange_rate'] or 190,
+                 method, card,
+                 p['customs_total'] or 0, p['shipping_total'] or 0, p['yongdal_total'] or 0,
+                 p['naver_fee_rate'] or 2.0, p['domestic_shipping'] or 2500))
+            pool_id = c.lastrowid
+
+            c.execute("""INSERT INTO pool_options
+                (pool_id, store_name, option_name, sale_price, product_type)
+                VALUES (?,?,?,?,?)""",
+                (pool_id, pg, pname, p['sale_price'] or 0, ptype))
+            opt_id = c.lastrowid
+
+            # stock_in 복사
+            old_ins = c.execute(
+                "SELECT * FROM stock_in WHERE product_id=? ORDER BY date ASC, id ASC",
+                (p['id'],)).fetchall()
+            for si in old_ins:
+                skeys = si.keys()
+                c.execute("""INSERT INTO pool_stock_in
+                    (pool_id, quantity, purchase_price_cny, purchase_price_krw,
+                     exchange_rate, payment_method, card_info, date, memo)
+                    VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (pool_id, si['quantity'],
+                     (si['purchase_price_cny'] if 'purchase_price_cny' in skeys else 0) or 0,
+                     (si['purchase_price_krw'] if 'purchase_price_krw' in skeys else 0) or 0,
+                     si['exchange_rate'] or 190,
+                     (si['payment_method'] if 'payment_method' in skeys else None) or '위안화',
+                     (si['card_info']      if 'card_info'      in skeys else None) or '',
+                     si['date'], si['memo'] or ''))
+
+            # stock_out 복사
+            old_outs = c.execute(
+                "SELECT * FROM stock_out WHERE product_id=?", (p['id'],)).fetchall()
+            for so in old_outs:
+                c.execute("""INSERT INTO pool_stock_out
+                    (option_id, quantity, date, source, file_name, order_number, memo)
+                    VALUES (?,?,?,?,?,?,?)""",
+                    (opt_id, so['quantity'], so['date'],
+                     so['source'] or 'manual',
+                     so['file_name'] or '', so['order_number'] or '', so['memo'] or ''))
+
+            # keywords 복사
+            old_kws = c.execute(
+                "SELECT keyword FROM product_keywords WHERE product_id=?", (p['id'],)).fetchall()
+            for kw in old_kws:
+                c.execute("INSERT INTO option_keywords (option_id, keyword) VALUES (?,?)",
+                          (opt_id, kw['keyword']))
+
     conn.commit()
     conn.close()
 
@@ -316,6 +446,67 @@ def compute_fifo_costs(conn, pid_list):
                 break
         result[pid] = fifo_cost
     return result
+
+
+def get_pool_stock(pool_id, conn=None):
+    close = conn is None
+    if close:
+        conn = get_db()
+    in_qty = conn.execute(
+        "SELECT COALESCE(SUM(quantity),0) as t FROM pool_stock_in WHERE pool_id=?",
+        (pool_id,)).fetchone()['t']
+    opt_ids = [r['id'] for r in conn.execute(
+        "SELECT id FROM pool_options WHERE pool_id=? AND is_active=1", (pool_id,)).fetchall()]
+    out_qty = 0
+    if opt_ids:
+        ph = ','.join('?' * len(opt_ids))
+        out_qty = conn.execute(
+            f"SELECT COALESCE(SUM(quantity),0) as t FROM pool_stock_out WHERE option_id IN ({ph})",
+            opt_ids).fetchone()['t']
+    if close:
+        conn.close()
+    return in_qty - out_qty
+
+
+def get_pool_fifo_cost(pool_id, conn=None):
+    """풀의 FIFO 기준 현재 재고 단가 반환 (없으면 None)"""
+    close = conn is None
+    if close:
+        conn = get_db()
+    batches = conn.execute("""
+        SELECT quantity,
+               COALESCE(purchase_price_cny,0) as cny,
+               COALESCE(purchase_price_krw,0) as krw,
+               COALESCE(payment_method,'위안화') as method,
+               COALESCE(exchange_rate,190) as rate
+        FROM pool_stock_in WHERE pool_id=? ORDER BY date ASC, id ASC
+    """, (pool_id,)).fetchall()
+    opt_ids = [r['id'] for r in conn.execute(
+        "SELECT id FROM pool_options WHERE pool_id=?", (pool_id,)).fetchall()]
+    out_qty = 0
+    if opt_ids:
+        ph = ','.join('?' * len(opt_ids))
+        out_qty = conn.execute(
+            f"SELECT COALESCE(SUM(quantity),0) as t FROM pool_stock_out WHERE option_id IN ({ph})",
+            opt_ids).fetchone()['t']
+    if close:
+        conn.close()
+    remaining = out_qty
+    for b in batches:
+        if b['method'] in ('원화', '카드') and b['krw'] > 0:
+            cost = float(b['krw'])
+        elif b['cny'] > 0:
+            cost = float(b['cny']) * float(b['rate'])
+        else:
+            remaining = max(0, remaining - b['quantity'])
+            continue
+        if remaining <= 0:
+            return cost
+        if remaining >= b['quantity']:
+            remaining -= b['quantity']
+        else:
+            return cost
+    return None
 
 
 def load_freebie_data():
@@ -475,10 +666,304 @@ def dashboard():
                            opt_defs=opt_defs, freebies_by_group=freebies_by_group)
 
 
-# ─── 상품 관리 ──────────────────────────────────────────────────────────────────
+# ─── 재고 풀 관리 ────────────────────────────────────────────────────────────────
+
+@app.route('/pools')
+def pools_list():
+    conn = get_db()
+    pools = conn.execute("""
+        SELECT sp.*, COUNT(po.id) as option_count
+        FROM stock_pools sp
+        LEFT JOIN pool_options po ON po.pool_id=sp.id AND po.is_active=1
+        WHERE sp.is_active=1
+        GROUP BY sp.id ORDER BY sp.group_name ASC, sp.id DESC
+    """).fetchall()
+    groups = {}
+    group_order = []
+    for p in pools:
+        gn = p['group_name']
+        if gn not in groups:
+            groups[gn] = []
+            group_order.append(gn)
+        stock = get_pool_stock(p['id'], conn)
+        fifo  = get_pool_fifo_cost(p['id'], conn)
+        groups[gn].append({'pool': p, 'stock': stock, 'fifo': fifo})
+    conn.close()
+    return render_template('pools.html', groups=groups, group_order=group_order)
+
+
+@app.route('/pool/new', methods=['GET', 'POST'])
+def pool_new():
+    if request.method == 'POST':
+        group_name     = request.form.get('group_name', '').strip()
+        pool_name      = request.form.get('pool_name', '').strip()
+        purchase_date  = request.form.get('purchase_date') or datetime.now().strftime('%Y-%m-%d')
+        total_qty      = int(request.form.get('total_quantity') or 0)
+        payment_method = request.form.get('payment_method', '위안화')
+        exchange_rate  = float(request.form.get('exchange_rate') or 190)
+        cny            = float(request.form.get('purchase_price_cny') or 0)
+        krw            = int(request.form.get('purchase_price_krw') or 0)
+        card_co        = request.form.get('card_company', '').strip()
+        card_no        = request.form.get('card_last4', '').strip()
+        card_info      = f'{card_co} {card_no}'.strip()
+        customs_total  = int(request.form.get('customs_total') or 0)
+        shipping_total = int(request.form.get('shipping_total') or 0)
+        yongdal_total  = int(request.form.get('yongdal_total') or 0)
+        naver_fee_rate = float(request.form.get('naver_fee_rate') or 2.0)
+        domestic_ship  = int(request.form.get('domestic_shipping') or 2500)
+
+        if payment_method in ('원화', '카드'):
+            cny = 0.0
+        else:
+            krw = 0
+
+        if not group_name or not pool_name:
+            flash('그룹명과 풀 이름을 입력해주세요.')
+            return redirect(request.url)
+
+        conn = get_db()
+        conn.execute("""INSERT INTO stock_pools
+            (group_name, pool_name, purchase_date,
+             purchase_price_cny, purchase_price_krw, exchange_rate,
+             payment_method, card_info,
+             customs_total, shipping_total, yongdal_total,
+             naver_fee_rate, domestic_shipping)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (group_name, pool_name, purchase_date,
+             cny, krw, exchange_rate, payment_method, card_info,
+             customs_total, shipping_total, yongdal_total,
+             naver_fee_rate, domestic_ship))
+        pool_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+        if total_qty > 0:
+            conn.execute("""INSERT INTO pool_stock_in
+                (pool_id, quantity, purchase_price_cny, purchase_price_krw,
+                 exchange_rate, payment_method, card_info, date, memo)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
+                (pool_id, total_qty, cny, krw, exchange_rate,
+                 payment_method, card_info, purchase_date, '초기 사입'))
+        conn.commit()
+        conn.close()
+        flash(f'재고 풀 "{pool_name}" 생성 완료. 이제 옵션을 추가하세요.')
+        return redirect(url_for('pool_detail', pool_id=pool_id))
+
+    conn = get_db()
+    existing_groups = [r[0] for r in conn.execute(
+        "SELECT DISTINCT group_name FROM stock_pools WHERE is_active=1 ORDER BY group_name"
+    ).fetchall()]
+    conn.close()
+    prefill = session.pop('pool_prefill', {})
+    if not prefill.get('group_name') and request.args.get('group'):
+        prefill['group_name'] = request.args.get('group')
+    return render_template('pool_register.html', existing_groups=existing_groups, p=prefill)
+
+
+@app.route('/pool/<int:pool_id>')
+def pool_detail(pool_id):
+    conn = get_db()
+    pool = conn.execute("SELECT * FROM stock_pools WHERE id=?", (pool_id,)).fetchone()
+    if not pool:
+        flash('존재하지 않는 재고 풀입니다.')
+        return redirect(url_for('pools_list'))
+
+    options = conn.execute("""
+        SELECT po.*, GROUP_CONCAT(ok.keyword, '||') as kws
+        FROM pool_options po
+        LEFT JOIN option_keywords ok ON ok.option_id=po.id
+        WHERE po.pool_id=? AND po.is_active=1
+        GROUP BY po.id ORDER BY po.id
+    """, (pool_id,)).fetchall()
+
+    stock_ins = conn.execute(
+        "SELECT * FROM pool_stock_in WHERE pool_id=? ORDER BY date DESC, id DESC",
+        (pool_id,)).fetchall()
+
+    current_stock = get_pool_stock(pool_id, conn)
+    fifo_cost     = get_pool_fifo_cost(pool_id, conn)
+
+    TYPE_LABELS = {
+        'opt1':'판매 상품', 'add1':'추가옵션1', 'add2':'추가옵션2',
+        'add3':'추가옵션3', 'gift':'사은품'
+    }
+
+    opt_data = []
+    for o in options:
+        m = None
+        if o['sale_price'] > 0:
+            pseudo = {
+                'sale_price':         o['sale_price'],
+                'purchase_price_cny': pool['purchase_price_cny'],
+                'purchase_price_krw': pool['purchase_price_krw'],
+                'exchange_rate':      pool['exchange_rate'],
+                'payment_method':     pool['payment_method'],
+                'customs_total':      pool['customs_total'],
+                'shipping_total':     pool['shipping_total'],
+                'yongdal_total':      pool['yongdal_total'],
+                'import_quantity':    1,
+                'naver_fee_rate':     pool['naver_fee_rate'],
+                'domestic_shipping':  pool['domestic_shipping'],
+            }
+            m = calculate_margin(pseudo, purchase_krw_override=fifo_cost)
+        kws = [k for k in (o['kws'] or '').split('||') if k]
+        opt_data.append({'o': o, 'm': m, 'kws': kws,
+                         'type_label': TYPE_LABELS.get(o['product_type'] or 'opt1', o['product_type'])})
+
+    conn.close()
+    return render_template('pool_detail.html', pool=pool, opt_data=opt_data,
+                           stock_ins=stock_ins, current_stock=current_stock,
+                           fifo_cost=fifo_cost)
+
+
+@app.route('/pool/<int:pool_id>/restock', methods=['POST'])
+def pool_restock(pool_id):
+    qty    = int(request.form.get('quantity') or 0)
+    date   = request.form.get('date') or datetime.now().strftime('%Y-%m-%d')
+    method = request.form.get('payment_method', '위안화')
+    cny    = float(request.form.get('purchase_price_cny') or 0)
+    krw    = int(request.form.get('purchase_price_krw') or 0)
+    rate   = float(request.form.get('exchange_rate') or 190)
+    card_co = request.form.get('card_company', '').strip()
+    card_no = request.form.get('card_last4', '').strip()
+    card_info = f'{card_co} {card_no}'.strip() if (card_co or card_no) else ''
+
+    if qty <= 0:
+        flash('수량을 1개 이상 입력해주세요.')
+        return redirect(url_for('pool_detail', pool_id=pool_id))
+
+    if method in ('원화', '카드'):
+        cny = 0.0
+    else:
+        krw = 0
+
+    conn = get_db()
+    conn.execute("""INSERT INTO pool_stock_in
+        (pool_id, quantity, purchase_price_cny, purchase_price_krw,
+         exchange_rate, payment_method, card_info, date, memo)
+        VALUES (?,?,?,?,?,?,?,?,?)""",
+        (pool_id, qty, cny, krw, rate, method, card_info, date, '재사입'))
+    if method in ('원화', '카드') and krw > 0:
+        conn.execute(
+            "UPDATE stock_pools SET purchase_price_krw=?, payment_method=?, card_info=? WHERE id=?",
+            (krw, method, card_info, pool_id))
+    elif cny > 0:
+        conn.execute(
+            "UPDATE stock_pools SET purchase_price_cny=?, exchange_rate=?, payment_method=? WHERE id=?",
+            (cny, rate, method, pool_id))
+    conn.commit()
+    conn.close()
+    flash(f'재사입 완료: {qty}개 추가')
+    return redirect(url_for('pool_detail', pool_id=pool_id))
+
+
+@app.route('/pool/<int:pool_id>/option/add', methods=['POST'])
+def pool_option_add(pool_id):
+    store_name   = request.form.get('store_name', '').strip()
+    option_name  = request.form.get('option_name', '').strip()
+    sale_price   = int(request.form.get('sale_price') or 0)
+    product_type = request.form.get('product_type', 'opt1')
+    keywords     = [k.strip() for k in request.form.getlist('keywords[]') if k.strip()]
+
+    if not option_name:
+        flash('옵션명을 입력해주세요.')
+        return redirect(url_for('pool_detail', pool_id=pool_id))
+
+    conn = get_db()
+    conn.execute("""INSERT INTO pool_options
+        (pool_id, store_name, option_name, sale_price, product_type)
+        VALUES (?,?,?,?,?)""",
+        (pool_id, store_name, option_name, sale_price, product_type))
+    opt_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+    for kw in keywords:
+        conn.execute("INSERT INTO option_keywords (option_id, keyword) VALUES (?,?)", (opt_id, kw))
+    conn.commit()
+    conn.close()
+    flash(f'옵션 "{option_name}" 추가 완료')
+    return redirect(url_for('pool_detail', pool_id=pool_id))
+
+
+@app.route('/pool/<int:pool_id>/option/<int:opt_id>/edit', methods=['POST'])
+def pool_option_edit(pool_id, opt_id):
+    store_name   = request.form.get('store_name', '').strip()
+    option_name  = request.form.get('option_name', '').strip()
+    sale_price   = int(request.form.get('sale_price') or 0)
+    product_type = request.form.get('product_type', 'opt1')
+    keywords     = [k.strip() for k in request.form.getlist('keywords[]') if k.strip()]
+
+    if not option_name:
+        flash('옵션명을 입력해주세요.')
+        return redirect(url_for('pool_detail', pool_id=pool_id))
+
+    conn = get_db()
+    conn.execute("""UPDATE pool_options
+        SET store_name=?, option_name=?, sale_price=?, product_type=?
+        WHERE id=? AND pool_id=?""",
+        (store_name, option_name, sale_price, product_type, opt_id, pool_id))
+    conn.execute("DELETE FROM option_keywords WHERE option_id=?", (opt_id,))
+    for kw in keywords:
+        conn.execute("INSERT INTO option_keywords (option_id, keyword) VALUES (?,?)", (opt_id, kw))
+    conn.commit()
+    conn.close()
+    flash('옵션 수정 완료')
+    return redirect(url_for('pool_detail', pool_id=pool_id))
+
+
+@app.route('/pool/<int:pool_id>/option/<int:opt_id>/delete', methods=['POST'])
+def pool_option_delete(pool_id, opt_id):
+    conn = get_db()
+    conn.execute("UPDATE pool_options SET is_active=0 WHERE id=? AND pool_id=?", (opt_id, pool_id))
+    conn.commit()
+    conn.close()
+    flash('옵션이 삭제되었습니다.')
+    return redirect(url_for('pool_detail', pool_id=pool_id))
+
+
+@app.route('/pool/<int:pool_id>/delete', methods=['POST'])
+def pool_delete(pool_id):
+    conn = get_db()
+    conn.execute("UPDATE stock_pools SET is_active=0 WHERE id=?", (pool_id,))
+    conn.commit()
+    conn.close()
+    flash('재고 풀이 삭제되었습니다.')
+    return redirect(url_for('pools_list'))
+
+
+@app.route('/pool/<int:pool_id>/edit', methods=['GET', 'POST'])
+def pool_edit(pool_id):
+    conn = get_db()
+    pool = conn.execute("SELECT * FROM stock_pools WHERE id=?", (pool_id,)).fetchone()
+    if not pool:
+        conn.close()
+        return redirect(url_for('pools_list'))
+    if request.method == 'POST':
+        group_name     = request.form.get('group_name', '').strip()
+        pool_name      = request.form.get('pool_name', '').strip()
+        customs_total  = int(request.form.get('customs_total') or 0)
+        shipping_total = int(request.form.get('shipping_total') or 0)
+        yongdal_total  = int(request.form.get('yongdal_total') or 0)
+        naver_fee_rate = float(request.form.get('naver_fee_rate') or 2.0)
+        domestic_ship  = int(request.form.get('domestic_shipping') or 2500)
+        conn.execute("""UPDATE stock_pools SET
+            group_name=?, pool_name=?,
+            customs_total=?, shipping_total=?, yongdal_total=?,
+            naver_fee_rate=?, domestic_shipping=?
+            WHERE id=?""",
+            (group_name, pool_name, customs_total, shipping_total, yongdal_total,
+             naver_fee_rate, domestic_ship, pool_id))
+        conn.commit()
+        conn.close()
+        flash('풀 정보가 수정되었습니다.')
+        return redirect(url_for('pool_detail', pool_id=pool_id))
+    conn.close()
+    return render_template('pool_edit.html', pool=pool)
+
+
+# ─── 상품 관리 (레거시 → 풀 리스트로 리디렉트) ─────────────────────────────────
 
 @app.route('/products')
 def products():
+    return redirect(url_for('pools_list'))
+
+
+def _products_legacy():
     prods = get_all_products_with_keywords()
     _, freebie_costs = load_freebie_data()
     opt_defs = load_option_defs()
@@ -664,6 +1149,10 @@ def product_new():
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    return redirect(url_for('pool_new'))
+
+
+def _register_legacy():
     TIER_LABELS = {
         'opt1': '옵션1', 'opt2': '옵션2', 'opt3': '옵션3',
         'add1': '추가옵션1', 'add2': '추가옵션2', 'add3': '추가옵션3',
@@ -1118,9 +1607,15 @@ def stock_upload():
                 today = datetime.now().strftime('%Y-%m-%d')
                 conn = get_db()
                 for r in pending:
-                    conn.execute("INSERT INTO stock_out (product_id, quantity, date, source, file_name, order_number) VALUES (?,?,?,'file',?,?)",
-                        (r['product_id'], r['quantity'], today, filename, r['order_number']))
-                    all_deducted.extend(apply_freebie_rules(conn, r['product_id'], r['quantity'], r.get('option_str', '')))
+                    if r.get('option_id'):
+                        conn.execute(
+                            "INSERT INTO pool_stock_out (option_id, quantity, date, source, file_name, order_number) VALUES (?,?,?,'file',?,?)",
+                            (r['option_id'], r['quantity'], today, filename, r['order_number']))
+                    else:
+                        conn.execute(
+                            "INSERT INTO stock_out (product_id, quantity, date, source, file_name, order_number) VALUES (?,?,?,'file',?,?)",
+                            (r['product_id'], r['quantity'], today, filename, r['order_number']))
+                        all_deducted.extend(apply_freebie_rules(conn, r['product_id'], r['quantity'], r.get('option_str', '')))
                 conn.commit()
                 conn.close()
                 msg = f'{len(pending)}건 출고 처리되었습니다.'
@@ -1147,6 +1642,19 @@ def stock_upload():
             wb = xlrd.open_workbook(tmp.name)
             ws = wb.sheet_by_index(0)
             products = get_all_products_with_keywords()
+            # 풀 옵션 목록 (option_keywords 포함)
+            conn_p = get_db()
+            pool_opts = conn_p.execute("""
+                SELECT po.id as opt_id, po.pool_id, po.option_name, po.product_type,
+                       sp.group_name, po.store_name,
+                       GROUP_CONCAT(ok.keyword, '||') as kws
+                FROM pool_options po
+                JOIN stock_pools sp ON sp.id=po.pool_id
+                LEFT JOIN option_keywords ok ON ok.option_id=po.id
+                WHERE po.is_active=1 AND sp.is_active=1
+                GROUP BY po.id
+            """).fetchall()
+            conn_p.close()
             results, unmatched = [], []
 
             for ri in range(1, ws.nrows):
@@ -1169,6 +1677,52 @@ def stock_upload():
 
                 qty = int(qty_m.group(1))
 
+                def words_match_local(opt_name, text):
+                    words = opt_name.split()
+                    return bool(words) and all(w in text for w in words)
+
+                # ── 풀 기반 매칭 (우선) ──────────────────────────────────────
+                pool_matched = None
+                pool_best_len = 0
+                for po in pool_opts:
+                    # 스토어 상품명 or 키워드가 G열에 포함되는지 먼저 확인
+                    store = (po['store_name'] or '').strip()
+                    kws_list = [k.strip() for k in (po['kws'] or '').split('||') if k.strip()]
+                    g_matched = False
+                    match_len = 0
+                    if store and store in g_val:
+                        g_matched = True
+                        match_len = len(store)
+                    for kw in kws_list:
+                        if kw in g_val and len(kw) > match_len:
+                            g_matched = True
+                            match_len = len(kw)
+                    if not g_matched:
+                        continue
+                    # 옵션명 매칭
+                    opt_name = (po['option_name'] or '').strip()
+                    if words_match_local(opt_name, option_str) or words_match_local(opt_name, g_val):
+                        score = match_len + len(opt_name)
+                        if score > pool_best_len:
+                            pool_best_len = score
+                            pool_matched = po
+
+                if pool_matched:
+                    results.append({
+                        'option_id':    pool_matched['opt_id'],
+                        'product_id':   0,
+                        'product_name': f'{pool_matched["group_name"]} / {pool_matched["option_name"]}',
+                        'option_name':  pool_matched['option_name'],
+                        'quantity':     qty,
+                        'order_number': order,
+                        'raw_name':     g_val[:60],
+                        'option_str':   option_str,
+                        'tier':         pool_matched['product_type'],
+                        'source':       'pool',
+                    })
+                    continue
+
+                # ── 레거시 상품 매칭 ─────────────────────────────────────────
                 # Step 1: 키워드 또는 상품명으로 product_group 식별
                 matched_group = None
                 best_kw_len = 0

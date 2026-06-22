@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="ph">
+  <div>
+    <h1>재고 풀 등록</h1>
+    <p>1단계: 사입 정보 입력 → 저장 후 옵션 추가</p>
+  </div>
+  <a href="/pools" class="btn btn-secondary">← 재고 풀 목록</a>
+</div>
+
+<form method="POST" action="/pool/new">
+
+  {# ── 그룹명 + 풀 이름 ── #}
+  <div class="card" style="margin-bottom:14px">
+    <div class="row2" style="gap:24px">
+      <div class="form-group" style="margin:0">
+        <label>그룹명 (1차 카테고리) <span style="color:#ef4444">*</span></label>
+        <input list="groupList" name="group_name" id="groupName" class="form-control" required
+               value="{{ p.get('group_name','') }}"
+               placeholder="예: 호스꼬임방지기"
+               style="font-size:15px;font-weight:600" autocomplete="off">
+        <datalist id="groupList">
+          {% for g in existing_groups %}<option value="{{ g }}">{% endfor %}
+        </datalist>
+        <p class="hint">같은 그룹명끼리 묶여 보입니다</p>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>풀 이름 <span style="color:#ef4444">*</span></label>
+        <input type="text" name="pool_name" class="form-control" required
+               value="{{ p.get('pool_name','') }}"
+               placeholder="예: 기본 일체형 / 3차 사입"
+               style="font-size:15px" autofocus>
+        <p class="hint">같은 제품의 재사입도 새 풀로 만들 수 있습니다</p>
+      </div>
+    </div>
+  </div>
+
+  {# ── 사입 정보 ── #}
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">사입 정보</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+      <div class="form-group" style="margin:0">
+        <label>사입일</label>
+        <input type="date" name="purchase_date" id="purchaseDate" class="form-control"
+               value="{{ p.get('purchase_date','') }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>총 수량 (개)</label>
+        <input type="number" name="total_quantity" class="form-control" value="{{ p.get('total_quantity','0') }}" min="0">
+        <p class="hint">0이면 재고 없이 풀만 생성</p>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>결제방식</label>
+        <select name="payment_method" class="form-control" id="payMethod" onchange="togglePay(this)">
+          <option value="위안화" {% if p.get('payment_method','위안화')=='위안화' %}selected{% endif %}>위안화</option>
+          <option value="원화"   {% if p.get('payment_method')=='원화'   %}selected{% endif %}>원화</option>
+          <option value="카드"   {% if p.get('payment_method')=='카드'   %}selected{% endif %}>카드</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0" id="exchWrap">
+        <label>환율 (위안→원)</label>
+        <input type="number" name="exchange_rate" class="form-control" step="0.01"
+               value="{{ p.get('exchange_rate','190') }}">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group" style="margin:0">
+        <label id="buyLabel">개당 사입가 (위안)</label>
+        <input type="number" name="purchase_price_cny" id="cnyInput" class="form-control" step="0.01"
+               value="{{ p.get('purchase_price_cny','0') }}">
+        <input type="number" name="purchase_price_krw" id="krwInput" class="form-control" step="1"
+               value="{{ p.get('purchase_price_krw','0') }}" style="display:none">
+      </div>
+      <div id="cardWrap" style="display:none">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="form-group" style="margin:0">
+            <label>카드사</label>
+            <input type="text" name="card_company" class="form-control" placeholder="신한, 삼성..."
+                   value="{{ p.get('card_company','') }}">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>카드번호 뒤 4자리</label>
+            <input type="text" name="card_last4" class="form-control" maxlength="4" placeholder="1234"
+                   value="{{ p.get('card_last4','') }}"
+                   oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── 비용 ── #}
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">비용 <span style="font-size:12px;font-weight:400;color:#9ca3af">마진 계산 기준</span></div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+      <div class="form-group" style="margin:0">
+        <label>관세 합계 (원)</label>
+        <input type="number" name="customs_total" class="form-control" value="{{ p.get('customs_total','0') }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>운송비 합계 (원)</label>
+        <input type="number" name="shipping_total" class="form-control" value="{{ p.get('shipping_total','0') }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>용달 합계 (원)</label>
+        <input type="number" name="yongdal_total" class="form-control" value="{{ p.get('yongdal_total','0') }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>네이버 수수료 (%)</label>
+        <input type="number" name="naver_fee_rate" class="form-control" step="0.01"
+               value="{{ p.get('naver_fee_rate','2.0') }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>국내 택배비 (원)</label>
+        <input type="number" name="domestic_shipping" class="form-control"
+               value="{{ p.get('domestic_shipping','2500') }}">
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;align-items:center">
+    <button type="submit" class="btn btn-primary" style="font-size:15px;padding:10px 32px">
+      저장 → 옵션 추가
+    </button>
+    <a href="/pools" class="btn btn-secondary">취소</a>
+    <span style="font-size:12px;color:#9ca3af">저장 후 옵션(스토어명+옵션명+판매가)을 추가합니다</span>
+  </div>
+</form>
+
+<script>
+(function() {
+  var el = document.getElementById('purchaseDate');
+  if (el && !el.value) el.value = new Date().toISOString().slice(0,10);
+  var sel = document.getElementById('payMethod');
+  if (sel) togglePay(sel);
+})();
+
+function togglePay(sel) {
+  var isCny  = sel.value === '위안화';
+  var isCard = sel.value === '카드';
+  document.getElementById('exchWrap').style.opacity  = isCny ? '1' : '0.35';
+  document.getElementById('buyLabel').textContent    = isCny ? '개당 사입가 (위안)' : '개당 사입가 (원)';
+  document.getElementById('cnyInput').style.display  = isCny ? '' : 'none';
+  document.getElementById('krwInput').style.display  = isCny ? 'none' : '';
+  document.getElementById('cardWrap').style.display  = isCard ? '' : 'none';
+}
+</script>
+{% endblock %}
