@@ -965,6 +965,16 @@ def pool_copy(pool_id):
                 return text.replace(find_text, replace_text)
             return text or ''
 
+        orig_prices = request.form.getlist('orig_prices[]')
+        new_prices  = request.form.getlist('new_prices[]')
+        price_map = {}
+        for op, np in zip(orig_prices, new_prices):
+            try:
+                if np.strip():
+                    price_map[int(op)] = int(np)
+            except Exception:
+                pass
+
         conn.execute("""INSERT INTO stock_pools
             (group_name, pool_name, purchase_price_cny, purchase_price_krw,
              exchange_rate, payment_method, card_info,
@@ -979,19 +989,21 @@ def pool_copy(pool_id):
         new_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
 
         for o in options:
+            new_price = price_map.get(o['sale_price'], o['sale_price'])
             conn.execute("""INSERT INTO pool_options
                 (pool_id, store_name, option_name, sale_price, product_type)
                 VALUES (?,?,?,?,?)""",
                 (new_id, rep(o['store_name'] or ''), rep(o['option_name']),
-                 o['sale_price'], o['product_type']))
+                 new_price, o['product_type']))
 
         conn.commit()
         conn.close()
         flash(f'"{new_pool_name}" 복사 완료. 재사입 버튼으로 사입 수량을 추가해주세요.')
         return redirect(url_for('pool_detail', pool_id=new_id))
 
+    unique_prices = sorted(set(o['sale_price'] for o in options))
     conn.close()
-    return render_template('pool_copy.html', pool=pool, options=options)
+    return render_template('pool_copy.html', pool=pool, options=options, unique_prices=unique_prices)
 
 
 @app.route('/pool/<int:pool_id>/edit', methods=['GET', 'POST'])

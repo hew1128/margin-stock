@@ -13,7 +13,7 @@
   {# ── 단어 치환 ── #}
   <div class="card" style="margin-bottom:14px">
     <div class="card-title">단어 치환 <span style="font-size:12px;font-weight:400;color:#9ca3af">스토어 상품명 + 옵션명 전체에 일괄 적용</span></div>
-    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center">
       <div class="form-group" style="margin:0">
         <label>찾을 단어</label>
         <input type="text" name="find_text" id="findText" class="form-control"
@@ -28,6 +28,30 @@
     </div>
   </div>
 
+  {# ── 가격 변경 ── #}
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">가격 변경 <span style="font-size:12px;font-weight:400;color:#9ca3af">원본 가격별로 새 가격 입력 (비워두면 그대로 유지)</span></div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      {% for price in unique_prices %}
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center">
+        <div style="background:#f3f4f6;border-radius:8px;padding:10px 14px;font-size:15px;font-weight:700;text-align:right;color:#374151">
+          {{ '{:,}'.format(price) }}원
+          <input type="hidden" name="orig_prices[]" value="{{ price }}">
+        </div>
+        <div style="font-size:22px;color:#9ca3af">→</div>
+        <div class="form-group" style="margin:0">
+          <input type="number" name="new_prices[]"
+                 class="form-control price-input"
+                 data-orig="{{ price }}"
+                 placeholder="{{ '{:,}'.format(price) }}"
+                 oninput="preview()"
+                 style="font-size:15px;font-weight:700;color:#4f46e5">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
   {# ── 새 풀 정보 ── #}
   <div class="card" style="margin-bottom:14px">
     <div class="card-title">새 풀 정보</div>
@@ -36,13 +60,11 @@
         <label>그룹명 <span style="color:#ef4444">*</span></label>
         <input type="text" name="group_name" id="newGroup" class="form-control" required
                value="{{ pool.group_name }}" style="font-size:15px;font-weight:600">
-        <p class="hint">치환 단어가 있으면 자동 적용됩니다</p>
       </div>
       <div class="form-group" style="margin:0">
         <label>새 풀 이름 <span style="color:#ef4444">*</span></label>
         <input type="text" name="pool_name" id="newPoolName" class="form-control" required
                value="{{ pool.pool_name }}" style="font-size:15px">
-        <p class="hint">치환 단어가 있으면 자동 적용됩니다</p>
       </div>
     </div>
   </div>
@@ -50,7 +72,6 @@
   {# ── 미리보기 ── #}
   <div class="card" style="margin-bottom:14px">
     <div class="card-title">옵션 미리보기</div>
-    <div style="font-size:12px;color:#9ca3af;margin-bottom:10px">복사 후 옵션명 / 스토어 상품명이 어떻게 바뀌는지 확인하세요</div>
     <table>
       <thead>
         <tr>
@@ -64,17 +85,15 @@
         <tr data-store="{{ o.store_name or '' }}" data-opt="{{ o.option_name }}" data-price="{{ o.sale_price }}">
           <td style="font-size:12px;color:#6b7280" class="store-cell">{{ o.store_name or '-' }}</td>
           <td class="opt-cell"><span class="badge bg-blue">{{ o.option_name }}</span></td>
-          <td class="tr bold">{{ '{:,}'.format(o.sale_price) }}원</td>
+          <td class="tr bold price-cell">{{ '{:,}'.format(o.sale_price) }}원</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  {# ── 복사된 풀 설정 안내 ── #}
   <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:#92400e">
     사입 수량은 복사되지 않습니다. 복사 후 <strong>재사입</strong> 버튼으로 수량을 입력하세요.
-    비용(관세/운송/용달/수수료/택배)은 원본과 동일하게 복사됩니다.
   </div>
 
   <div style="display:flex;gap:10px;align-items:center">
@@ -96,25 +115,39 @@ function preview() {
     return s.split(find).join(repl);
   }
 
+  // 가격 맵 구성
+  var priceMap = {};
+  document.querySelectorAll('.price-input').forEach(function(el) {
+    var orig = parseInt(el.getAttribute('data-orig'));
+    var val  = el.value.trim();
+    if (val !== '') priceMap[orig] = parseInt(val);
+  });
+
   // 그룹명 / 풀이름 자동 업데이트
   document.getElementById('newGroup').value    = rep(origGroup);
   document.getElementById('newPoolName').value = rep(origPool);
 
   // 옵션 미리보기 업데이트
-  var rows = document.querySelectorAll('#previewBody tr');
-  rows.forEach(function(row) {
-    var store = row.getAttribute('data-store');
-    var opt   = row.getAttribute('data-opt');
+  document.querySelectorAll('#previewBody tr').forEach(function(row) {
+    var store    = row.getAttribute('data-store');
+    var opt      = row.getAttribute('data-opt');
+    var origPrice = parseInt(row.getAttribute('data-price'));
     var newStore = rep(store);
     var newOpt   = rep(opt);
+    var newPrice = (origPrice in priceMap) ? priceMap[origPrice] : origPrice;
+
     var storeCell = row.querySelector('.store-cell');
     var optCell   = row.querySelector('.opt-cell span');
+    var priceCell = row.querySelector('.price-cell');
+
     storeCell.textContent = newStore || '-';
     optCell.textContent   = newOpt;
-    // 바뀐 경우 강조
-    storeCell.style.color = (newStore !== store) ? '#4f46e5' : '#6b7280';
-    optCell.style.background = (newOpt !== opt) ? '#4f46e5' : '';
-    optCell.style.color = (newOpt !== opt) ? '#fff' : '';
+    priceCell.textContent = newPrice.toLocaleString() + '원';
+
+    storeCell.style.color      = (newStore !== store) ? '#4f46e5' : '#6b7280';
+    optCell.style.background   = (newOpt !== opt) ? '#4f46e5' : '';
+    optCell.style.color        = (newOpt !== opt) ? '#fff' : '';
+    priceCell.style.color      = (newPrice !== origPrice) ? '#4f46e5' : '';
   });
 }
 </script>
