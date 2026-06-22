@@ -611,59 +611,70 @@ def get_all_products_with_keywords():
 
 @app.route('/')
 def dashboard():
-    products = get_all_products_with_keywords()
-    _, freebie_costs = load_freebie_data()
-    items = []
-    for p in products:
-        pg = (p['product_group'] or '').strip() or p['name']
-        fc = freebie_costs.get(pg, 0)
-        combo = None
-        if p['option_combo_json'] if 'option_combo_json' in p.keys() else None:
-            try: combo = json.loads(p['option_combo_json'])
-            except: pass
-        items.append({'p': p, 'm': calculate_margin(p, freebie_cost=fc), 's': get_current_stock(p['id']),
-                      'sgid': p['stock_group_id'] or p['id'], 'combo': combo})
+    conn = get_db()
+    pools = conn.execute(
+        "SELECT * FROM stock_pools WHERE is_active=1 ORDER BY group_name, id"
+    ).fetchall()
 
-    # product_group(또는 name) → (name, opt) 키 3단계 그룹핑
-    group_map  = {}
-    group_max_id = {}
-    for item in items:
-        pg   = (item['p']['product_group'] or '').strip()
-        name = item['p']['name']
-        opt  = item['p']['option_name'] or ''
-        pid  = item['p']['id']
-        gkey = pg if pg else name
-        tkey = (name, opt)
-        if gkey not in group_map:
-            group_map[gkey] = {}
-            group_max_id[gkey] = 0
-        if tkey not in group_map[gkey]:
-            group_map[gkey][tkey] = []
-        group_map[gkey][tkey].append(item)
-        if pid > group_max_id[gkey]:
-            group_max_id[gkey] = pid
+    groups = {}
+    group_order = []
+    total_stock = 0
+    low_stock_count = 0
 
-    opt_defs = load_option_defs()
-    freebies_by_group, _ = load_freebie_data()
-    gkeys = sort_groups_by_setting(list(group_map.keys()), group_max_id)
-    grouped = []
-    for gkey in gkeys:
-        od = group_map[gkey]
-        key_order = sorted(od.keys(), key=lambda k: max(i['p']['id'] for i in od[k]), reverse=True)
-        opt_rows = []
-        seen_sgids = set()
-        total_g = 0
-        for tkey in key_order:
-            its = od[tkey]
-            opt_s = sum(i['s'] for i in its)
-            for i in its:
-                if i['sgid'] not in seen_sgids:
-                    seen_sgids.add(i['sgid'])
-                    total_g += i['s']
-            opt_rows.append({'opt': tkey[1], 'listing': tkey[0], 'latest': its[0], 'total_s': opt_s})
-        grouped.append((gkey, opt_rows, total_g))
-    return render_template('dashboard.html', grouped=grouped, group_names=gkeys,
-                           opt_defs=opt_defs, freebies_by_group=freebies_by_group)
+    for p in pools:
+        gn = p['group_name'] or '미분류'
+        stock = get_pool_stock(p['id'], conn)
+        fifo  = get_pool_fifo_cost(p['id'], conn)
+        total_pool_qty = conn.execute(
+            "SELECT COALESCE(SUM(quantity),0) as q FROM pool_stock_in WHERE pool_id=?", (p['id'],)
+        ).fetchone()['q'] or 1
+
+        options = conn.execute(
+            "SELECT * FROM pool_options WHERE pool_id=? AND is_active=1 ORDER BY id", (p['id'],)
+        ).fetchall()
+
+        opt_margins = []
+        for o in options:
+            if o['sale_price'] > 0:
+                pseudo = {
+                    'sale_price': o['sale_price'],
+                    'purchase_price_cny': p['purchase_price_cny'],
+                    'purchase_price_krw': p['purchase_price_krw'],
+                    'exchange_rate': p['exchange_rate'],
+                    'payment_method': p['payment_method'],
+                    'customs_total': p['customs_total'],
+                    'shipping_total': p['shipping_total'],
+                    'yongdal_total': p['yongdal_total'],
+                    'import_quantity': total_pool_qty,
+                    'naver_fee_rate': p['naver_fee_rate'],
+                    'domestic_shipping': p['domestic_shipping'],
+                }
+                m = calculate_margin(pseudo, purchase_krw_override=fifo)
+                opt_margins.append(m['general_margin'])
+
+        best_margin  = max(opt_margins) if opt_margins else None
+        worst_margin = min(opt_margins) if opt_margins else None
+
+        total_stock += max(stock, 0)
+        if stock <= 0:
+            low_stock_count += 1
+
+        if gn not in groups:
+            groups[gn] = []
+            group_order.append(gn)
+        groups[gn].append({
+            'pool': p, 'stock': stock, 'fifo': fifo,
+            'opt_count': len(options),
+            'best_margin': best_margin, 'worst_margin': worst_margin,
+        })
+
+    conn.close()
+    total_pools = len(pools)
+    total_groups = len(groups)
+    return render_template('dashboard.html',
+                           groups=groups, group_order=group_order,
+                           total_pools=total_pools, total_groups=total_groups,
+                           total_stock=total_stock, low_stock_count=low_stock_count)
 
 
 # ─── 재고 풀 관리 ────────────────────────────────────────────────────────────────

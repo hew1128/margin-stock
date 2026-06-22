@@ -1,114 +1,88 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="ph">
-  <div><h1>대시보드</h1><p>전체 재고 현황 및 마진 요약</p></div>
-  <div style="display:flex;gap:8px">
-    <a href="/download/stock" class="btn btn-secondary">📥 재고현황 엑셀</a>
-    <a href="/products/new" class="btn btn-primary">+ 상품 등록</a>
+  <div><h1>대시보드</h1><p>재고 풀 현황 요약</p></div>
+  <a href="/pool/new" class="btn btn-primary">+ 풀 등록</a>
+</div>
+
+{# ── 요약 카드 ── #}
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">그룹</div>
+    <div style="font-size:28px;font-weight:800;color:#111">{{ total_groups }}</div>
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">총 풀</div>
+    <div style="font-size:28px;font-weight:800;color:#111">{{ total_pools }}</div>
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">총 재고</div>
+    <div style="font-size:28px;font-weight:800;color:#10b981">{{ total_stock }}개</div>
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:20px">
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:6px">재고 소진 풀</div>
+    <div style="font-size:28px;font-weight:800;color:{{ '#ef4444' if low_stock_count > 0 else '#10b981' }}">{{ low_stock_count }}</div>
   </div>
 </div>
 
-<script>
-var G_NAMES = {{ group_names | tojson }};
-async function moveGroup(name, dir) {
-  var idx = G_NAMES.indexOf(name);
-  var ni  = idx + dir;
-  if (ni < 0 || ni >= G_NAMES.length) return;
-  var arr = G_NAMES.slice();
-  arr[idx] = G_NAMES[ni]; arr[ni] = G_NAMES[idx];
-  await fetch('/group-order', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({order: arr})});
-  location.reload();
-}
-</script>
-
-{% if grouped %}
-<div class="card" style="padding:0;overflow:hidden">
+{# ── 그룹별 풀 테이블 ── #}
+{% for gname in group_order %}
+{% set pool_list = groups[gname] %}
+<div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
+  <div style="display:flex;align-items:center;justify-content:space-between;
+              padding:12px 20px;background:#16213e;color:#fff">
+    <span style="font-size:15px;font-weight:700">{{ gname }}</span>
+    {% set g_stock = pool_list | sum(attribute='stock') %}
+    <span style="font-size:13px;font-weight:700;padding:4px 12px;border-radius:7px;
+                 background:{{ '#10b981' if g_stock > 10 else ('#f59e0b' if g_stock > 0 else '#ef4444') }}">
+      총 {{ g_stock }}개
+    </span>
+  </div>
   <table>
     <thead>
       <tr>
-        <th>상품명</th>
-        <th class="tr">총재고</th>
-        <th>옵션</th>
-        <th class="tr">옵션재고</th>
-        <th class="tr">판매가</th>
-        <th class="tr">간이 마진</th>
-        <th class="tr">간이 마진율</th>
-        <th class="tr">일반 마진</th>
-        <th class="tr">일반 마진율</th>
+        <th>풀 이름</th>
+        <th class="tr">현재 재고</th>
+        <th class="tr">FIFO 사입가</th>
+        <th class="tr">옵션 수</th>
+        <th class="tr">최고 일반마진</th>
+        <th class="tr">최저 일반마진</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
-    {% for name, opt_rows, total_name_s in grouped %}
-    {% set row_count = opt_rows|length %}
-    {% for row in opt_rows %}
+    {% for item in pool_list %}
+    {% set pool = item.pool %}
     <tr>
-      {# 상품명 + 총재고: 첫 번째 옵션 행에만 rowspan으로 표시 #}
-      {% if loop.first %}
-      <td class="bold" rowspan="{{ row_count }}"
-          style="font-size:14px;{% if row_count > 1 %}border-right:1px solid #e5e7eb;vertical-align:top;padding-top:14px{% endif %}">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap">
-          <span>{{ name }}</span>
-          <div style="display:flex;flex-direction:column;gap:2px;flex-shrink:0">
-            <button onclick="moveGroup('{{ name }}', -1)" title="위로"
-                    style="width:20px;height:18px;border:1px solid #e5e7eb;background:#fff;border-radius:3px;cursor:pointer;font-size:9px;color:#9ca3af;line-height:1;padding:0">▲</button>
-            <button onclick="moveGroup('{{ name }}', 1)" title="아래로"
-                    style="width:20px;height:18px;border:1px solid #e5e7eb;background:#fff;border-radius:3px;cursor:pointer;font-size:9px;color:#9ca3af;line-height:1;padding:0">▼</button>
-          </div>
-        </div>
-      </td>
-      <td class="tr" rowspan="{{ row_count }}"
-          style="{% if row_count > 1 %}border-right:1px solid #e5e7eb;vertical-align:top;padding-top:10px{% endif %}">
-        <span class="badge {{ 'bg-green' if total_name_s > 10 else ('bg-yellow' if total_name_s > 0 else 'bg-red') }}"
-              style="font-size:13px;padding:4px 12px;font-weight:700">{{ total_name_s }}개</span>
-      </td>
-      {% endif %}
-
-      {# 옵션명 #}
-      <td>
-        {% if row.opt %}
-        <span class="badge bg-blue" style="font-size:12px;padding:3px 10px">{{ row.opt }}</span>
-        {% else %}
-        <span style="font-size:12px;color:#9ca3af">단일</span>
-        {% endif %}
-        {% if row.listing != name %}
-        <div style="font-size:10px;color:#9ca3af;margin-top:2px">{{ row.listing[:30] }}{% if row.listing|length > 30 %}…{% endif %}</div>
-        {% endif %}
-      </td>
-
-      {# 옵션 재고 #}
+      <td style="font-weight:600">{{ pool.pool_name }}</td>
       <td class="tr">
-        <span class="badge {{ 'bg-green' if row.total_s > 10 else ('bg-yellow' if row.total_s > 0 else 'bg-red') }}"
-              style="font-size:12px;padding:3px 10px">{{ row.total_s }}개</span>
+        <span style="font-weight:700;padding:3px 10px;border-radius:6px;
+                     background:{{ '#d1fae5' if item.stock > 10 else ('#fef3c7' if item.stock > 0 else '#fee2e2') }};
+                     color:{{ '#065f46' if item.stock > 10 else ('#92400e' if item.stock > 0 else '#991b1b') }}">
+          {{ item.stock }}개
+        </span>
       </td>
-
-      {# 마진 (해당 옵션의 최신 배치 기준) #}
-      {% set p = row.latest.p %}
-      {% set m = row.latest.m %}
-      <td class="tr" style="font-weight:600">{{ '{:,}'.format(p.sale_price) }}원</td>
-
-      <td class="tr {{ 'green' if m.simple_margin >= 0 else 'red' }}" style="font-weight:700">
-        {{ '{:,.0f}'.format(m.simple_margin) }}원
+      <td class="tr" style="color:#6b7280">
+        {% if item.fifo %}{{ '{:,.0f}'.format(item.fifo) }}원{% else %}-{% endif %}
       </td>
-      <td class="tr {{ 'green' if m.simple_margin_rate >= 0 else 'red' }}">
-        {{ '{:.1f}'.format(m.simple_margin_rate) }}%
+      <td class="tr" style="color:#6b7280">{{ item.opt_count }}개</td>
+      <td class="tr" style="font-weight:700;color:{{ '#2563eb' if item.best_margin is not none and item.best_margin >= 0 else '#ef4444' }}">
+        {% if item.best_margin is not none %}{{ '{:,.0f}'.format(item.best_margin) }}원{% else %}-{% endif %}
       </td>
-      <td class="tr {{ 'green' if m.general_margin >= 0 else 'red' }}" style="font-weight:700;color:#2563eb">
-        {{ '{:,.0f}'.format(m.general_margin) }}원
+      <td class="tr" style="font-weight:700;color:{{ '#2563eb' if item.worst_margin is not none and item.worst_margin >= 0 else '#ef4444' }}">
+        {% if item.worst_margin is not none %}{{ '{:,.0f}'.format(item.worst_margin) }}원{% else %}-{% endif %}
       </td>
-      <td class="tr" style="color:#2563eb">
-        {{ '{:.1f}'.format(m.general_margin_rate) }}%
-      </td>
+      <td><a href="/pool/{{ pool.id }}" class="btn btn-secondary btn-sm">상세</a></td>
     </tr>
-    {% endfor %}
     {% endfor %}
     </tbody>
   </table>
 </div>
+{% endfor %}
 
-{% else %}
-<div class="card" style="padding:50px;text-align:center;color:#aaa">
-  등록된 상품이 없습니다. <a href="/products/new" style="color:#4f46e5">상품 등록하기 →</a>
+{% if not group_order %}
+<div class="card" style="padding:60px;text-align:center;color:#aaa">
+  등록된 재고 풀이 없습니다. <a href="/pool/new" style="color:#4f46e5">풀 등록하기 →</a>
 </div>
 {% endif %}
 {% endblock %}
