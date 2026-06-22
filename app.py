@@ -741,9 +741,20 @@ def pool_new():
                 VALUES (?,?,?,?,?,?,?,?,?)""",
                 (pool_id, total_qty, cny, krw, exchange_rate,
                  payment_method, card_info, purchase_date, '초기 사입'))
+        # 첫 번째 옵션도 함께 저장 (입력된 경우)
+        store_name   = request.form.get('store_name', '').strip()
+        option_name  = request.form.get('option_name', '').strip()
+        sale_price   = int(request.form.get('sale_price') or 0)
+        product_type = request.form.get('product_type', 'opt1')
+        if option_name:
+            conn.execute("""INSERT INTO pool_options
+                (pool_id, store_name, option_name, sale_price, product_type)
+                VALUES (?,?,?,?,?)""",
+                (pool_id, store_name, option_name, sale_price, product_type))
+
         conn.commit()
         conn.close()
-        flash(f'재고 풀 "{pool_name}" 생성 완료. 이제 옵션을 추가하세요.')
+        flash(f'재고 풀 "{pool_name}" 생성 완료.')
         return redirect(url_for('pool_detail', pool_id=pool_id))
 
     conn = get_db()

@@ -118,12 +118,43 @@
     </div>
   </div>
 
+  {# ── 첫 번째 옵션 (선택) ── #}
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">옵션 등록 <span style="font-size:12px;font-weight:400;color:#9ca3af">풀과 함께 첫 옵션을 바로 등록합니다</span></div>
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+      <div class="form-group" style="margin:0">
+        <label>스토어 상품명 <span style="font-weight:400;color:#9ca3af">(네이버에 올린 상품 제목 그대로)</span></label>
+        <input type="text" name="store_name" class="form-control"
+               placeholder="예: [텃밭 농약줄] 꼬임방지기 고급 일체형"
+               value="{{ p.get('store_name','') }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>옵션명 <span style="font-weight:400;color:#9ca3af">(발송파일 매칭)</span></label>
+        <input type="text" name="option_name" class="form-control"
+               placeholder="예: 기본 일체형"
+               value="{{ p.get('option_name','') }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>판매가 (원)</label>
+        <input type="number" name="sale_price" class="form-control" value="{{ p.get('sale_price','0') }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>타입</label>
+        <select name="product_type" class="form-control">
+          <option value="opt1">판매 상품</option>
+          <option value="add1">추가옵션1</option>
+          <option value="add2">추가옵션2</option>
+          <option value="add3">추가옵션3</option>
+          <option value="gift">사은품</option>
+        </select>
+      </div>
+    </div>
+    <p class="hint">스토어 상품명이 발송파일 G열에 포함되면 이 옵션에서 재고 차감됩니다. 같은 풀에 스토어가 여러 개면 저장 후 풀 상세에서 추가하세요.</p>
+  </div>
+
   <div style="display:flex;gap:10px;align-items:center">
-    <button type="submit" class="btn btn-primary" style="font-size:15px;padding:10px 32px">
-      저장 → 옵션 추가
-    </button>
+    <button type="submit" class="btn btn-primary" style="font-size:15px;padding:10px 32px">저장</button>
     <a href="/pools" class="btn btn-secondary">취소</a>
-    <span style="font-size:12px;color:#9ca3af">저장 후 옵션(스토어명+옵션명+판매가)을 추가합니다</span>
   </div>
 </form>
 
