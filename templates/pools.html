@@ -9,22 +9,28 @@
 </div>
 
 {% if groups %}
+<div id="poolGroupList">
 {% for gname in group_order %}
 {% set pool_list = groups[gname] %}
 {% set gi = loop.index %}
 
-<div style="margin-bottom:16px">
+<div class="pool-group-wrap" data-group="{{ gname }}" style="margin-bottom:16px">
 
   {# ── 그룹 헤더 ── #}
   <div style="display:flex;align-items:center;justify-content:space-between;
-              padding:13px 20px;background:#16213e;color:#fff;
-              border-radius:10px 10px 0 0;cursor:pointer;user-select:none"
-       onclick="togG('g{{gi}}','ga{{gi}}')">
-    <div style="display:flex;align-items:center;gap:10px">
-      <span id="ga{{gi}}" style="font-size:11px;color:rgba(255,255,255,.5);transition:transform .2s">▶</span>
-      <span style="font-size:16px;font-weight:700">{{ gname }}</span>
-      <span style="font-size:12px;background:rgba(255,255,255,.15);padding:3px 10px;border-radius:6px">
-        풀 {{ pool_list|length }}개
+              padding:10px 16px;background:#16213e;color:#fff;
+              border-radius:10px 10px 0 0;user-select:none">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="group-drag-handle"
+            style="font-size:13px;color:rgba(255,255,255,.3);cursor:grab;padding:0 4px;letter-spacing:1px"
+            title="드래그해서 그룹 순서 변경">⠿</span>
+      <span style="cursor:pointer;display:flex;align-items:center;gap:8px"
+            onclick="togG('g{{gi}}','ga{{gi}}')">
+        <span id="ga{{gi}}" style="font-size:11px;color:rgba(255,255,255,.5);transition:transform .2s">▶</span>
+        <span style="font-size:16px;font-weight:700">{{ gname }}</span>
+        <span style="font-size:12px;background:rgba(255,255,255,.15);padding:3px 10px;border-radius:6px">
+          풀 {{ pool_list|length }}개
+        </span>
       </span>
     </div>
     {% set total_stock = pool_list | sum(attribute='stock') %}
@@ -112,6 +118,7 @@
   </div>
 </div>
 {% endfor %}
+</div>{# /#poolGroupList #}
 
 {% else %}
 <div class="card" style="padding:60px;text-align:center;color:#aaa">
@@ -187,6 +194,51 @@
 </div>
 
 <script>
+// ── 그룹 순서 드래그 ────────────────────────────────────────────
+(function() {
+  var dragging = null;
+  var list = document.getElementById('poolGroupList');
+  if (!list) return;
+
+  document.addEventListener('mousedown', function(e) {
+    var handle = e.target.closest('.group-drag-handle');
+    if (!handle) return;
+    e.preventDefault();
+    dragging = handle.closest('.pool-group-wrap');
+    dragging.style.opacity = '0.55';
+    dragging.style.boxShadow = '0 4px 20px rgba(0,0,0,.2)';
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    Array.from(list.querySelectorAll('.pool-group-wrap')).forEach(function(c) {
+      if (c === dragging) return;
+      var rect = c.getBoundingClientRect();
+      var mid  = rect.top + rect.height / 2;
+      if (e.clientY < mid) {
+        list.insertBefore(dragging, c);
+      } else if (e.clientY > mid && c.nextSibling !== dragging) {
+        list.insertBefore(dragging, c.nextSibling);
+      }
+    });
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (!dragging) return;
+    dragging.style.opacity = '';
+    dragging.style.boxShadow = '';
+    var order = Array.from(list.querySelectorAll('.pool-group-wrap')).map(function(c) {
+      return c.dataset.group;
+    });
+    fetch('/group-order', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({order: order})
+    });
+    dragging = null;
+  });
+})();
+
 // ── 풀 순서 드래그 ──────────────────────────────────────────────
 (function() {
   var dragging = null, fromList = null;
