@@ -137,6 +137,9 @@ function applyWordReplace() {
     log.innerHTML += '<span style="color:#f59e0b;margin-right:10px">⚠ "' + find + '" 해당 없음</span>';
   }
 
+  // 새 풀 이름을 바꿀 단어로 설정
+  document.getElementById('newPoolName').value = repl;
+
   // 입력창 초기화
   document.getElementById('findText').value    = '';
   document.getElementById('replaceText').value = '';
